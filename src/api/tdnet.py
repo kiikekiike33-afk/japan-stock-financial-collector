@@ -12,32 +12,31 @@ logger = logging.getLogger(__name__)
 
 def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callback=None):
     """
-    Scrapes TDnet disclosure PDFs directly from IR Bank.
-    Targeting specific document types: 決算短信, 決算説明資料, 決算補足資料, 業績予想の修正
+    IR BankからTDnet適時開示PDFを直接検索・ダウンロードします。
+    対象ドキュメント種別: 決算短信, 決算説明資料, 決算補足資料, 業績予想の修正, 差異
+    
+    【取得範囲に関する仕様（実地調査済み）】
+    IR Bankの各企業IRページ (https://irbank.net/{ticker}/ir) にはページ送りの仕組みはなく、
+    過去約10年分（2013年以降）の開示リンクが単一ページに全件掲載されています。
+    そのため、取得範囲はIR Bankの当該ページに掲載されている全件となります。
     """
-    logger.info(f"Checking IR Bank for {ticker} past {years} years...")
+    logger.info(f"IR Bankから銘柄コード {ticker} の過去 {years} 年分のTDnet開示を検索中...")
     
     downloaded_files = []
     seen_pdf_urls = set()
+    rejected_count = 0  # PDF検証で弾かれた件数
     
-    # User requested explicit target keywords in the link text
-    # 決算短信 (Earnings summary)
-    # 決算説明 (Earnings presentation)
-    # 決算補足 (Earnings supplementary)
-    # 業績予想 or 差異 (Earnings forecast revisions or differences from actuals)
+    # 対象キーワード
     target_keywords = ["決算短信", "決算説明", "決算補足", "業績予想", "差異"]
     
-    # Calculate target cutoff date
+    # 取得期間の足切り日時
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365 * years)
     
     try:
-        # Sleep to avoid hammering IR Bank
-        time.sleep(1.5)
+        time.sleep(1.5)  # 負荷軽減のための待機
         
-        # Base url for the company's IR page on IR bank
         url = f"https://irbank.net/{ticker}/ir"
-        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
@@ -46,11 +45,7 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        
         target_links = []
-        # IR Bank lists links in <a> tags, the date info is often inside the url or text
-        # Specifically, the URLs look like /6999/140120200422497505
-        # We need to find the link, then visit that specific document page to extract the actual PDF link
         
         links = soup.find_all('a')
         for a in links:
@@ -61,27 +56,23 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
                 continue
                 
             if any(kw in title for kw in target_keywords):
-                # We found a target disclosure page
                 target_links.append((title, urllib.parse.urljoin("https://irbank.net", href)))
 
-        logger.info(f"Found {len(target_links)} raw matched TDnet announcements on IR Bank.")
+        logger.info(f"IR Bank上で合致する適時開示リンクを {len(target_links)} 件検出しました。")
         
-        # Download each targeted PDF
+        # 各PDFのダウンロード処理
         for i, (title, doc_page_url) in enumerate(target_links):
-            
-            # Request the specific document page to find the real PDF URL
             try:
-                # We parse the YYYYMMDD out of the ending digits (roughly the middle of the ID)
-                # Example: /6999/140120200422497505 -> 20200422
+                # URL末尾のIDから日付（YYYYMMDD）を抽出
                 page_id = doc_page_url.split('/')[-1]
                 if len(page_id) >= 12:
-                    date_part = page_id[4:12] # e.g. "20200422"
+                    date_part = page_id[4:12]
                     if not date_part.isdigit() or not (1900 <= int(date_part[:4]) <= 2100):
-                         date_part = "YYYYMMDD"
+                        date_part = "YYYYMMDD"
                 else:
                     date_part = "YYYYMMDD"
                     
-                # Skip if older than requested years
+                # 指定年数より古い開示はスキップ
                 if date_part != "YYYYMMDD":
                     doc_date = datetime.strptime(date_part, "%Y%m%d")
                     if doc_date < start_date:
@@ -90,22 +81,20 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
                 doc_resp = requests.get(doc_page_url, headers=headers, timeout=15)
                 doc_resp.raise_for_status()
                 
-                # IR bank provides the direct PDF link in the HTML
                 pdf_match = re.search(r'https?://f\.irbank\.net/pdf/[a-zA-Z0-9./_-]+\.pdf', doc_resp.text)
-                
                 if not pdf_match:
-                    logger.warning(f"Could not find PDF link on {doc_page_url}")
+                    logger.warning(f"PDFリンクが見つかりませんでした: {doc_page_url}")
                     continue
                     
                 pdf_url = pdf_match.group(0)
                 
-                # 重複ダウンロードを防止（同じPDF URLは1回だけ）
+                # 重複ダウンロードを防止
                 if pdf_url in seen_pdf_urls:
-                    logger.info(f"Skipping duplicate PDF URL: {pdf_url}")
+                    logger.info(f"重複PDF URLをスキップ: {pdf_url}")
                     continue
                 seen_pdf_urls.add(pdf_url)
                 
-                # Standardize Title to match pattern: 決算短信, 決算説明資料, etc.
+                # タイトルの正規化
                 clean_title = title.replace("/", "／").replace("\\", "＼").replace(" ", "_")
                 if "四半期" in title:
                     clean_title = "四半期" + clean_title
@@ -113,24 +102,40 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
                 filename = f"{date_part}_{clean_title}_{ticker}.pdf"
                 filepath = os.path.join(TEMP_DOWNLOAD_DIR, filename)
                 
-                logger.info(f"Downloading TDnet PDF: {filename} from {pdf_url}")
+                logger.info(f"TDnet PDFダウンロード開始: {filename} ({pdf_url})")
                 pdf_dl_resp = requests.get(pdf_url, headers=headers, stream=True, timeout=30)
                 pdf_dl_resp.raise_for_status()
+                
+                content_type = pdf_dl_resp.headers.get('Content-Type', '').lower()
+                
+                # 先頭チャンクを取得してマジックナンバー (%PDF) を検証
+                first_chunk = next(pdf_dl_resp.iter_content(chunk_size=8192), None)
+                if not first_chunk or not first_chunk.startswith(b'%PDF'):
+                    logger.warning(f"PDFヘッダ検証失敗（%PDFマジックナンバーなし、Content-Type: {content_type}）。保存を中止します: {pdf_url}")
+                    rejected_count += 1
+                    continue
+                
                 with open(filepath, 'wb') as f:
+                    f.write(first_chunk)
                     for chunk in pdf_dl_resp.iter_content(chunk_size=8192):
-                        f.write(chunk)
+                        if chunk:
+                            f.write(chunk)
+                            
                 downloaded_files.append(filepath)
                 
             except Exception as dl_e:
-                logger.warning(f"Failed to process/download TDnet doc {title}: {dl_e}")
+                logger.warning(f"TDnet開示資料の処理失敗 ({title}): {dl_e}")
                 
-            time.sleep(1) # Courtesy delay to avoid being banned by IR Bank
+            time.sleep(1) # IR Bankへのアクセス負荷軽減
             
             if progress_callback:
                 progress_callback((i + 1) / max(1, len(target_links)))
 
     except Exception as e:
-        logger.error(f"Error fetching TDnet docs for {ticker}: {e}")
+        logger.error(f"TDnet開示資料の取得エラー ({ticker}): {e}")
         
-    # 重複パスを削除（同一ファイルが複数回リストに追加されるのを防ぐ）
+    if rejected_count > 0:
+        logger.warning(f"【検証集計】PDF検証で弾かれた不正ファイル数: {rejected_count} 件")
+        
+    # 重複パスを削除して返却
     return list(dict.fromkeys(downloaded_files))
