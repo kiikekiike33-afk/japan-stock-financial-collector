@@ -1,6 +1,6 @@
 # 日本株財務データ収集 & Google Drive連携ツール
 
-証券コードを入力するだけで、有価証券報告書（EDINET）、適時開示情報（TDnet / IR Bank）、ESG・統合報告書（Web検索）、過去の株価・出来高データを自動収集・結合し、Google DriveやNotebookLMへワンストップで連携するPCローカル実行型ツールです。
+証券コードを入力するだけで、有価証券報告書（EDINET）、適時開示情報（TDnet / IR Bank）、ESG・統合報告書（Web検索）、過去の株価・出来高データを自動収集・結合し、Google Driveへワンストップで連携するツールです。ローカルPCでも Streamlit Cloud でも動作します。
 
 ---
 
@@ -13,7 +13,6 @@
 - **株価・出来高データ取得**: Yahoo Finance（yfinance）から過去3年分の株価推移をCSVとして出力
 - **年度別PDF自動結合**: 散らばるレポートを年度・種別（四半期報告書は有報と分離）ごとに自動で結合
 - **Google Drive 自動アップロード**: 銘柄ごとのフォルダを作成し同期（既存同名ファイルは自動スキップ）
-- **NotebookLM 連携**: Playwright経由でGoogle Drive Pickerを自動操作し、収集した資料をNotebookLMのソースとして安全に登録
 
 ---
 
@@ -29,14 +28,12 @@
 ├── .gitignore                 # 機密情報・キャッシュの除外設定
 ├── src/
 │   ├── api/                   # 各種データ取得（EDINET, TDnet, ESG, 株価, 競合他社）
-│   ├── automation/            # NotebookLM自動化（Playwright）
 │   ├── cloud/                 # Google Drive アップロード連携
 │   ├── processing/            # PDF結合・データ整形処理
 │   └── utils/                 # 設定・証券コード変換等のユーティリティ
 ├── tools/
 │   ├── auto_sync.ps1          # GitHub auto-sync 自動同期スクリプト
 │   ├── auto_sync_task.xml     # タスクスケジューラ定義
-│   └── debug/                 # 開発・解析用スクリプト置き場
 └── tests/                     # 単体テスト群
 ```
 
@@ -48,7 +45,6 @@
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 ### 2. 環境変数の設定
@@ -64,25 +60,32 @@ cp .env.example .env
 
 ### 3. Google Drive API 連携（任意）
 
-Google Driveへの自動アップロードを利用する場合は、Google Cloud Consoleで作成した OAuth クライアント情報 `credentials.json` を本プロジェクトのルートディレクトリに配置してください（初回実行時に対話型ブラウザ認証が行われ、`token.json` が生成されます）。
+Google Driveへの自動アップロードを利用する場合は、次のどちらかで認証します。
+
+- **ローカルPC**: Google Cloud Consoleで作成した OAuth クライアント情報 `credentials.json` を本プロジェクトのルートディレクトリに配置してください（初回実行時に対話型ブラウザ認証が行われ、`token.json` が生成されます）。
+- **Streamlit Cloud**: ブラウザ認証ができないため、PCで一度生成した `token.json` の中身を、アプリの Secrets に `GDRIVE_TOKEN_JSON` として設定してください（更新トークンで自動的に認証が継続します）。
 
 ---
 
-## 🖥️ 動作環境と利用方法（実態について）
+## 🖥️ 動作環境と利用方法
 
-### ローカルPCでの利用（推奨・基本設計）
-
-本アプリは、以下の理由から**ローカルPC（Windows）での実行を前提**として設計されています：
-1. **Google OAuth認証**: 初回ログイン時に対話型ローカルWebサーバーを開いてトークン（`token.json`）を生成します。
-2. **NotebookLM自動化**: ローカルにインストールされたGoogle Chromeのプロファイル（Cookie・ログイン状態）をPlaywrightで直接制御します。
+### ローカルPCでの利用
 
 Windows環境では、`日本株財務データ収集アプリ起動.bat` をダブルクリックするだけでブラウザが開き、アプリが起動します。
 
-### スマホでの閲覧・操作方法
+### Streamlit Cloud での利用
 
-完全クラウド（Streamlit Community Cloud等）上では上記OAuth認証やローカルChrome制御が動作しないため、スマホから操作する場合は以下の方法を推奨します：
+Streamlit Community Cloud にデプロイすれば、スマホからもそのまま利用できます。デプロイ時にアプリの Secrets へ以下を設定してください。
 
-- **同一Wi-Fiネットワーク経由**: PCでアプリを起動した状態で、コマンドラインに表示される `Network URL`（例: `http://192.168.x.x:8501`）を、同じWi-Fiに接続したスマホのブラウザで開くことで、スマホから直接データ収集を指示できます。
+- `EDINET_API_KEY`: 金融庁のAPIキー
+- `GDRIVE_TOKEN_JSON`: PCで生成した `token.json` の中身（Google Drive連携を使う場合）
+- `GDRIVE_ROOT_FOLDER_ID`: （任意）保存先フォルダID
+
+注意点:
+- Cloud のディスクは再起動で消えるため、EDINET 日次一覧キャッシュは保持されません（毎回まっさらな状態から走査します）。
+- 無料枠のリソース制限があるため、長期間・多数銘柄の一括実行は途中で制限に当たる場合があります。
+
+※ NotebookLM への自動登録機能は廃止しました（旧バージョンにあった Playwright による自動転送は削除済み）。アップロード済みファイルのURL一覧はアプリ内に表示されるので、必要な場合はコピーして手動でご利用ください。
 
 ### Meta AIエージェント「Muse」との連携
 

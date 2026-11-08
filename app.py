@@ -214,63 +214,17 @@ if "all_folder_links" in st.session_state and st.session_state.all_folder_links:
     for t, lnk in st.session_state.all_folder_links:
          st.markdown(f"- **{t}**: [Google Driveで確認]({lnk})")
          
-    # NotebookLM用 URLリストの表示
+    # アップロード済みファイルURLの一覧（コピー用）
     if "all_file_links_by_base" in st.session_state and st.session_state.all_file_links_by_base:
         st.markdown("---")
-        st.markdown("### 🧠 NotebookLM への自動格納用URL")
-        st.info("以下のURLリストを各グループごとにコピーし、NotebookLMの「ソースの追加」→「ウェブサイト」欄にペーストすることで一括読み込みが可能です！")
-        
+        st.markdown("### 📋 アップロード済みファイルのURL")
+        st.info("各グループのファイルURL一覧です。必要な場合はコピーしてご利用ください。")
+
         for base_label, links in st.session_state.all_file_links_by_base.items():
             if links:
                 st.markdown(f"**{base_label} グループ**")
                 st.code("\n".join(links), language="text")
-                
-                if st.button(f"🤖 {base_label}をNotebookLMに自動転送（実験的）", key=f"bot_{base_label}"):
-                    import subprocess
-                    import sys
-                    import os
-                    import tempfile
-                    import json
-                    bot_path = os.path.join(os.path.dirname(__file__), "src", "automation", "notebooklm_bot.py")
-                    
-                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as tf:
-                        json.dump({"links": links, "notebook_name": base_label}, tf)
-                        temp_file_path = tf.name
-                        
-                    subprocess.Popen([sys.executable, bot_path, temp_file_path])
-                    st.success("🤖 ブラウザを起動しました！別ウィンドウでお待ちください（初回は手動でGoogleログインが必要です）。")
+
 elif "start_processing" in st.session_state and st.session_state.start_processing:
     if not st.session_state.all_folder_links:
         st.warning("アップロードに成功した銘柄がありませんでした。")
-
-st.markdown("---")
-st.markdown("### 🛠 既存のURLをNotebookLMに転送 (手動入力)")
-with st.expander("既にGoogle DriveにあるURLを転送する場合はこちら"):
-    st.info("過去に生成したGoogle DriveのフォルダURL、またはファイルURLリストを直接入力してください。")
-    
-    folder_url_input = st.text_input("📁 Google Drive フォルダURL", key="folder_url_input", help="ここにフォルダURLを貼り付けてボタンを押すと、自動でNotebookLMへ転送されます。")
-    if st.button("🤖 フォルダURLからNotebookLMに一括転送", key="bot_folder"):
-        if folder_url_input:
-            from src.cloud.gdrive import get_file_links_from_folder_url
-            try:
-                fetched_links, fetched_folder_name = get_file_links_from_folder_url(folder_url_input)
-                if fetched_links:
-                    st.success(f"「{fetched_folder_name}」から {len(fetched_links)}件のファイルリンクを取得しました。ブラウザを起動します！")
-                    import subprocess
-                    import sys
-                    import os
-                    import tempfile
-                    import json
-                    bot_path = os.path.join(os.path.dirname(__file__), "src", "automation", "notebooklm_bot.py")
-                    
-                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as tf:
-                        json.dump({"links": fetched_links, "notebook_name": fetched_folder_name}, tf)
-                        temp_file_path = tf.name
-                        
-                    subprocess.Popen([sys.executable, bot_path, temp_file_path])
-                else:
-                    st.warning("フォルダ内にファイルが見つかりませんでした。")
-            except Exception as e:
-                st.error(f"エラーが発生しました: {e}")
-        else:
-            st.warning("フォルダURLを入力してください。")

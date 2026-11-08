@@ -14,7 +14,6 @@ token.json
 client_secret*.json
 
 # ブラウザプロファイル・Cookie・セッション情報
-notebooklm_profile/
 
 # 出力フォルダ・一時ダウンロード・ログ
 output/
@@ -27,7 +26,6 @@ streamlit_run.log
 # デバッグ用ダンプ・画像・キャッシュ
 debug_*.png
 picker*.png
-notebooklm_*dump.html
 found_buttons.json
 edinet_ticker_cache.json
 
