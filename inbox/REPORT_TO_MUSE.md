@@ -149,3 +149,25 @@
      - ※ユーザー様およびMuseの判断をお待ちいたします。
 - **変更ファイル**: `tests/test_pdf_merger.py`, `tests/test_edinet_filename.py`, `tests/test_edinet_cache.py`, `tests/__init__.py`
 - **確認結果**: 全4テスト通過。
+
+---
+
+## 指示2026-11-08-13
+
+- **実施日時**: 2026-11-08 22:45
+- **実施内容**:
+  1. **.gitignoreの是正**: 使い捨てテストスクリプトの除外パターンを `/test_*.py`（ルート直下のみ）に変更。`tests/` 配下の単体テストが正しくGit追跡対象となるよう修正。
+  2. **テストコードのコミット・プッシュ**: `tests/test_pdf_merger.py`, `tests/test_edinet_filename.py`, `tests/test_edinet_cache.py` の3ファイルをステージングし、`origin/auto-sync` へプッシュ完了（コミット `e364112`）。
+  3. **単体テスト再実行**: `python -m unittest tests.test_pdf_merger tests.test_edinet_filename tests.test_edinet_cache -v` を実行し、全4件パスを確認（Ran 4 tests in 0.448s, OK）。
+  4. **git status --ignored の点検結果**:
+     - 意図通り除外されているファイル: `.env`, `credentials.json`, `token.json`（機密情報）、`output/`, `temp_downloads/`, `logs/`, `notebooklm_profile/`, `__pycache__/`（一時ファイル・セッション・キャッシュ）、ルート直下の古い使い捨てテスト（`test_1961.py` 等）。
+     - 結論: `tests/` 配下のテストファイル以外に、リポジトリに含めるべきファイルが誤って除外されているものは存在しないことを確認。
+- **変更ファイル**: `.gitignore`, `tests/test_pdf_merger.py`, `tests/test_edinet_filename.py`, `tests/test_edinet_cache.py`
+- **確認結果**: 全テスト合格、GitHubリポジトリへのファイル反映を確認。
+
+## 指示2026-11-08-14
+
+- **実施日時**: 2026-11-08 22:45
+- **実施内容**:
+  - ユーザー様の決定に基づきMuseが作成・追加した `LICENSE`（MIT License, Copyright (c) 2026 kiikekiike33-afk）を手元ローカル環境にて正常に受領・同期（コミット `98cb737`）したことを確認いたしました。内容の変更は行わずそのまま保持いたします。
+- **確認結果**: 受領確認完了。
