@@ -1,39 +1,34 @@
 import os
+import re
 import logging
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from src.utils.config import GDRIVE_ROOT_FOLDER_ID
 
 logger = logging.getLogger(__name__)
 
-# If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def get_gdrive_service():
-    """Shows basic usage of the Drive v3 API.
-    Prints the names and ids of the first 10 files the user has access to.
+    """
+    Google Drive API v3 のサービスクライアントを取得します。
     """
     creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             if not os.path.exists('credentials.json'):
-                logger.error("credentials.json not found. Please follow README instructions to create one.")
-                raise FileNotFoundError("Google Drive API OAuth credentials (credentials.json) missing.")
+                logger.error("credentials.json が見つかりません。")
+                raise FileNotFoundError("Google Drive API OAuth 認証ファイル (credentials.json) が存在しません。")
             
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
@@ -41,101 +36,159 @@ def get_gdrive_service():
 
 def get_or_create_folder(service, folder_name: str, parent_id: str = None):
     """
-    Checks if a folder with `folder_name` exists (under `parent_id` if specified).
-    Returns the ID of the folder. If not found, creates it.
+    指定されたフォルダ名が存在するか確認し、存在しなければ作成してそのIDを返します。
+    クエリ内の特殊文字エスケープおよび nextPageToken ページングに対応しています。
     """
-    query = f"mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed=false"
+    safe_folder_name = folder_name.replace("'", "\\'")
+    query = f"mimeType='application/vnd.google-apps.folder' and name='{safe_folder_name}' and trashed=false"
     if parent_id:
         query += f" and '{parent_id}' in parents"
         
-    results = service.files().list(q=query, spaces='drive', fields='nextPageToken, files(id, name)').execute()
-    items = results.get('files', [])
+    page_token = None
+    existing_folder_id = None
     
-    if items:
-        # Folder exists
-        return items[0]['id']
-    else:
-        # Create folder
-        folder_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        if parent_id:
-            folder_metadata['parents'] = [parent_id]
+    while True:
+        results = service.files().list(
+            q=query,
+            spaces='drive',
+            fields='nextPageToken, files(id, name)',
+            pageToken=page_token
+        ).execute()
+        
+        files = results.get('files', [])
+        if files:
+            existing_folder_id = files[0]['id']
+            break
             
-        file = service.files().create(body=folder_metadata, fields='id').execute()
-        logger.info(f"Created Google Drive folder '{folder_name}' (ID: {file.get('id')})")
-        return file.get('id')
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
+            
+    if existing_folder_id:
+        return existing_folder_id
+        
+    # 存在しない場合は新規作成
+    folder_metadata = {
+        'name': folder_name,
+        'mimeType': 'application/vnd.google-apps.folder'
+    }
+    if parent_id:
+        folder_metadata['parents'] = [parent_id]
+        
+    file = service.files().create(body=folder_metadata, fields='id').execute()
+    new_id = file.get('id')
+    logger.info(f"Google Driveに新規フォルダを作成しました: '{folder_name}' (ID: {new_id})")
+    return new_id
+
+def get_existing_files_in_folder(service, folder_id: str) -> dict:
+    """
+    指定フォルダ内の既存ファイル一覧を {filename: file_id} の辞書形式で取得します（ページング対応）。
+    """
+    existing_files = {}
+    query = f"'{folder_id}' in parents and trashed=false"
+    page_token = None
+    
+    while True:
+        results = service.files().list(
+            q=query,
+            spaces='drive',
+            fields='nextPageToken, files(id, name)',
+            pageToken=page_token
+        ).execute()
+        
+        for f in results.get('files', []):
+            existing_files[f['name']] = f['id']
+            
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
+            
+    return existing_files
 
 def upload_to_drive(ticker: str, filepaths: list, progress_callback=None, group_folder_name: str = None):
     """
-    Google Driveへファイルをアップロードする。
-    group_folder_name指定時: [root] / [group_folder_name] に直接アップロード
-    未指定時: [root] / [ticker]_NotebookLMソース にアップロード
+    Google Driveへファイルをアップロードします。
+    戻り値: (folder_link, file_links) のタプル（空時は ("", [])）
+    
+    【改修点（指示06）】
+    - ハードコードIDを廃止し環境変数 GDRIVE_ROOT_FOLDER_ID を使用（未設定時はマイドライブ直下）
+    - 既存ファイルがある場合は重複アップロードをスキップ
+    - 戻り値を常に (str, list) に統一
     """
     if not filepaths:
-        logger.warning("No files provided for Google Drive upload.")
-        return None
+        logger.warning("Google Driveへのアップロード対象ファイルがありません。")
+        return "", []
         
     try:
         service = get_gdrive_service()
         
-        # ユーザー指定のルートフォルダ
-        root_parent_id = "1te4F2oDZECvcQV9sY-5MHKcypr0MxYcf"
+        # 環境変数から親フォルダIDを取得（未設定時はマイドライブ直下 = None）
+        root_parent_id = GDRIVE_ROOT_FOLDER_ID if GDRIVE_ROOT_FOLDER_ID else None
         
         if group_folder_name:
-            # グループフォルダに直接アップロード（個別サブフォルダは作らない）
             folder_name = group_folder_name
-            folder_id = get_or_create_folder(service, folder_name, parent_id=root_parent_id)
         else:
-            # 単一銘柄の場合は従来通り個別フォルダを作成
             folder_name = f"{ticker}_NotebookLMソース"
-            folder_id = get_or_create_folder(service, folder_name, parent_id=root_parent_id)
-        # To return the link:
+            
+        folder_id = get_or_create_folder(service, folder_name, parent_id=root_parent_id)
+        
         folder_metadata = service.files().get(fileId=folder_id, fields='webViewLink').execute()
-        folder_link = folder_metadata.get('webViewLink')
+        folder_link = folder_metadata.get('webViewLink', '')
 
+        # 既存ファイルの確認（重複アップロード防止）
+        existing_files = get_existing_files_in_folder(service, folder_id)
+        skipped_count = 0
+
+        file_links = []
         total_files = len(filepaths)
         
-        # 2. Upload files
-        file_links = []
         for i, filepath in enumerate(filepaths):
             if not os.path.exists(filepath):
-                logger.warning(f"File not found, skipping upload: {filepath}")
+                logger.warning(f"ファイルが存在しないためスキップ: {filepath}")
                 continue
                 
             filename = os.path.basename(filepath)
             
+            # 同名ファイルが既にアップロード先にある場合はスキップ
+            if filename in existing_files:
+                file_id = existing_files[filename]
+                file_links.append(f"https://drive.google.com/file/d/{file_id}/view")
+                logger.info(f"同名ファイルが既に存在するためアップロードをスキップ: {filename}")
+                skipped_count += 1
+                if progress_callback:
+                    progress_callback((i + 1) / total_files)
+                continue
+                
             file_metadata = {
                 'name': filename,
                 'parents': [folder_id]
             }
             
             media = MediaFileUpload(filepath, resumable=True)
-            logger.info(f"Uploading {filename} to {folder_name}...")
+            logger.info(f"{filename} を Google Drive にアップロード中...")
             file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
             file_id = file.get('id')
-            logger.info(f"Uploaded {filename} (ID: {file_id})")
+            logger.info(f"アップロード完了: {filename} (ID: {file_id})")
             
             file_links.append(f"https://drive.google.com/file/d/{file_id}/view")
             
             if progress_callback:
                 progress_callback((i + 1) / total_files)
                 
+        if skipped_count > 0:
+            logger.info(f"重複スキップ件数: {skipped_count} / {total_files} 件")
+            
         return folder_link, file_links
         
     except Exception as e:
-        logger.error(f"Failed to upload to Google Drive: {e}")
+        logger.error(f"Google Driveアップロード失敗: {e}")
         raise
-
-import re
 
 def get_file_links_from_folder_url(folder_url: str):
     """
-    指定されたGoogle DriveフォルダURL内のすべてのファイルのURLリストを取得する。
+    指定されたGoogle DriveフォルダURL内のすべてのファイルのURLリストを取得します（ページング対応）。
     """
     try:
-        # URLからフォルダIDを抽出
         match = re.search(r'folders/([a-zA-Z0-9_-]+)', folder_url)
         if not match:
             match = re.search(r'id=([a-zA-Z0-9_-]+)', folder_url)
@@ -144,26 +197,44 @@ def get_file_links_from_folder_url(folder_url: str):
             raise ValueError("無効なGoogle DriveフォルダURLです。")
             
         folder_id = match.group(1)
-        
         service = get_gdrive_service()
+        
         try:
             folder_metadata = service.files().get(fileId=folder_id, fields='name').execute()
             folder_name = folder_metadata.get('name', folder_id)
-        except Exception:
-            folder_name = folder_id
+        except Exception as e:
+            logger.warning(f"フォルダ情報取得エラー (ID: {folder_id}): {e}")
+            raise PermissionError(
+                "指定されたフォルダにアクセスできませんでした。\n"
+                "※本アプリの認証スコープ（drive.file）では、本アプリ自身が作成したファイル・フォルダのみ操作可能です。"
+                "外部で手動作成されたフォルダや権限のないフォルダは読み込めない場合があります。"
+            )
+            
         query = f"'{folder_id}' in parents and trashed=false"
-        
-        # フォルダ内のファイルを取得
-        results = service.files().list(q=query, spaces='drive', fields='nextPageToken, files(id, name)').execute()
-        items = results.get('files', [])
-        
         file_links = []
-        for item in items:
-            file_id = item.get('id')
-            file_links.append(f"https://drive.google.com/file/d/{file_id}/view")
+        page_token = None
+        
+        while True:
+            results = service.files().list(
+                q=query,
+                spaces='drive',
+                fields='nextPageToken, files(id, name)',
+                pageToken=page_token
+            ).execute()
+            
+            for item in results.get('files', []):
+                file_id = item.get('id')
+                file_links.append(f"https://drive.google.com/file/d/{file_id}/view")
+                
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+                
+        if not file_links:
+            logger.info(f"フォルダ内にファイルが見つかりませんでした (ID: {folder_id})")
             
         return file_links, folder_name
         
     except Exception as e:
-        logger.error(f"Failed to fetch files from folder: {e}")
+        logger.error(f"フォルダからのファイル取得に失敗しました: {e}")
         raise e

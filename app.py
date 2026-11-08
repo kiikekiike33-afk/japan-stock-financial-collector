@@ -26,20 +26,21 @@ with st.sidebar:
 if start_button:
     st.session_state.start_processing = True
     import streamlit.components.v1 as components
-    # 処理中の誤操作（タブ閉じ・リロード）防止スクリプト
+    # 処理中の誤操作（タブ閉じ・リロード）防止スクリプト（指示11: 解除可能な同一ハンドラ登録）
     components.html("""
         <script>
-            const preventClose = function(e) {
+            window.parent.__preventCloseHandler = function(e) {
                 e.preventDefault();
                 e.returnValue = '';
             };
-            window.parent.addEventListener('beforeunload', preventClose);
+            window.parent.addEventListener('beforeunload', window.parent.__preventCloseHandler);
         </script>
     """, height=0)
 
     import src.utils.config as config
     if not config.EDINET_API_KEY or config.EDINET_API_KEY == "your_edinet_api_key_here" or "ここに" in config.EDINET_API_KEY:
         st.error(".env ファイルに「EDINET APIキー」を設定してください。")
+        st.session_state.start_processing = False
         st.stop()
     
     # 全角→半角変換 (英数字対応)
@@ -48,10 +49,25 @@ if start_button:
     trans_map = str.maketrans(zenkaku_chars, hankaku_chars)
     normalized_input = ticker_input.translate(trans_map)
     raw_tickers = re.split(r'[,\s]+', normalized_input.strip())
-    base_tickers = [t.strip().upper() for t in raw_tickers if t.strip().isalnum() and len(t.strip()) == 4]
+    
+    base_tickers = []
+    invalid_tickers = []
+    for t in raw_tickers:
+        clean_t = t.strip().upper()
+        if not clean_t:
+            continue
+        if clean_t.isalnum() and len(clean_t) == 4:
+            base_tickers.append(clean_t)
+        else:
+            invalid_tickers.append(clean_t)
+            
+    # 【指示11改修】除外された無効コードを画面に明示
+    if invalid_tickers:
+        st.warning(f"以下の入力は4桁の銘柄コード形式に合致しないため除外しました: {', '.join(invalid_tickers)}")
     
     if not base_tickers:
         st.error("正しい4桁の証券コードを入力してください。")
+        st.session_state.start_processing = False
         st.stop()
     
     from src.utils.mapper import ticker_to_edinet, get_company_name
@@ -99,90 +115,98 @@ if start_button:
         labels = [f"{t} - {name_map.get(t, '')}" if name_map.get(t) else t for t in group_tickers]
         st.info(f"対象: {', '.join(labels)}")
         
-        # グループフォルダ名（競合を含む場合のみ）
-        if include_peers and len(group_tickers) > 1:
-            peer_str = "、".join(group_tickers[1:])
-            group_folder_name = f"{base_ticker}_{base_name}_競合（{peer_str}）" if base_name else f"{base_ticker}_競合（{peer_str}）"
-        else:
-            group_folder_name = None
+        # アップロード先フォルダ名
+        group_folder_name = f"{base_label}_同業分析セット" if len(group_tickers) > 1 else None
         
-        # グループ内の各銘柄を処理
         for idx, ticker in enumerate(group_tickers):
-            c_name = name_map.get(ticker, "") or ""
-            display_name = f"{ticker}_{c_name}" if c_name else ticker
+            company_name = name_map.get(ticker, "")
+            display_name = f"{ticker}_{company_name}" if company_name else ticker
+            st.subheader(f"[{idx+1}/{len(group_tickers)}] {display_name}")
             
-            st.markdown(f"#### 🚀 [{idx+1}/{len(group_tickers)}] {display_name}")
-            
-            # EDINET Code mapping (optional now)
-            edinet_code = ticker_to_edinet(ticker)
-            if edinet_code:
-                st.success(f"EDINETコード: {edinet_code}")
-            else:
-                st.warning(f"EDINETコードが辞書に見つかりません。証券コード ({ticker}) から直接書類を検索します。")
-                
-            status_text = st.empty()
             progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            downloaded_files = []
             
             try:
                 # 1. EDINET
-                status_text.text(f"EDINETから有価証券報告書等を取得中... (過去{target_years}年)")
-                edinet_pdfs = fetch_and_save_edinet_reports(ticker, edinet_code, target_years)
-                progress_bar.progress(30)
+                status_text.text("EDINETで有価証券報告書を検索中...")
+                edinet_code = ticker_to_edinet(ticker)
+                
+                def edinet_progress(p):
+                    progress_bar.progress(int(p * 20))
+                    
+                edinet_files = fetch_and_save_edinet_reports(ticker, edinet_code, years=target_years, progress_callback=edinet_progress)
+                downloaded_files.extend(edinet_files)
                 
                 # 2. TDnet (IR Bank)
-                status_text.text("適時開示情報を取得中...")
-                tdnet_pdfs = search_and_download_tdnet_docs(ticker, target_years)
-                progress_bar.progress(50)
+                status_text.text("IR Bankで決算短信等を検索中...")
+                def tdnet_progress(p):
+                    progress_bar.progress(20 + int(p * 20))
+                    
+                tdnet_files = search_and_download_tdnet_docs(ticker, years=target_years, progress_callback=tdnet_progress)
+                downloaded_files.extend(tdnet_files)
                 
-                # 3. ESG / 統合報告書
-                esg_pdfs = []
+                # 3. ESG・統合報告書 (Web)
                 if fetch_esg:
-                     status_text.text("統合報告書・ESGレポートを検索中...")
-                     esg_pdfs = fetch_integrated_esg_reports(ticker, company_name=c_name)
-                progress_bar.progress(60)
+                    status_text.text("WebからESG・統合報告書を検索中...")
+                    progress_bar.progress(50)
+                    esg_files = fetch_integrated_esg_reports(ticker, company_name)
+                    downloaded_files.extend(esg_files)
                 
-                all_pdfs = edinet_pdfs + tdnet_pdfs + esg_pdfs
-                # 重複パスを削除
-                all_pdfs = list(dict.fromkeys(all_pdfs))
-                
-                if not all_pdfs:
-                    status_text.warning(f"{display_name} の該当ドキュメントが見つかりませんでした。")
-                    continue
-                # 4. Merge
-                upload_targets = all_pdfs
-                if merge_options:
-                    status_text.text("年度ごとにPDFを結合中...")
-                    merged_pdfs = group_and_merge_by_year(all_pdfs, ticker, company_name=c_name)
-                    if merged_pdfs:
-                        upload_targets = merged_pdfs
-                progress_bar.progress(80)
-                # 4.5. 株価データの取得
+                # 4. 株価データ (過去3年分)
                 if fetch_stock:
-                    status_text.text("過去3年分の株価・出来高データを取得中...")
-                    stock_pdf = fetch_3y_stock_data(ticker, company_name=c_name)
-                    if stock_pdf:
-                        upload_targets.append(stock_pdf)
+                    status_text.text("過去3年分の株価データを取得中...")
+                    progress_bar.progress(60)
+                    stock_csv = fetch_3y_stock_data(ticker, company_name)
+                    if stock_csv:
+                        downloaded_files.append(stock_csv)
                 
-                # 5. Google Driveへアップロード
+                progress_bar.progress(70)
+                
+                # 5. PDF結合
+                upload_targets = []
+                csv_files = [f for f in downloaded_files if f.endswith('.csv')]
+                pdf_files = [f for f in downloaded_files if f.endswith('.pdf')]
+                
+                if merge_options and pdf_files:
+                    status_text.text("PDFを年度・種別ごとに結合中...")
+                    merged_files = group_and_merge_by_year(pdf_files, ticker, company_name)
+                    upload_targets.extend(merged_files)
+                else:
+                    upload_targets.extend(pdf_files)
+                    
+                upload_targets.extend(csv_files)
+                
+                progress_bar.progress(85)
+                
+                # 6. Google Driveへアップロード
                 status_text.text("Google Driveへアップロード中...")
                 folder_link, file_links = upload_to_drive(display_name, upload_targets, group_folder_name=group_folder_name)
                 progress_bar.progress(100)
                 
                 status_text.success(f"{display_name} 完了！ ({len(upload_targets)}件)")
-                st.markdown(f"📁 **{display_name}:** [Google Driveで確認]({folder_link})")
-                st.session_state.all_folder_links.append((display_name, folder_link))
+                if folder_link:
+                    st.markdown(f"📁 **{display_name}:** [Google Driveで確認]({folder_link})")
+                    st.session_state.all_folder_links.append((display_name, folder_link))
                 st.session_state.all_file_links_by_base[base_label].extend(file_links)
                 
             except Exception as e:
                 status_text.error(f"{display_name} の処理中にエラー: {str(e)}")
                 print(f"Error processing {display_name}: {e}")
                 st.exception(e)
-    # 処理完了：誤操作防止スクリプトを解除
+                
+    # 【指示11改修】処理完了：誤操作防止スクリプトを確実に解除し、状態をリセット
     components.html("""
         <script>
+            if (window.parent.__preventCloseHandler) {
+                window.parent.removeEventListener('beforeunload', window.parent.__preventCloseHandler);
+                window.parent.__preventCloseHandler = null;
+            }
             window.parent.onbeforeunload = null;
         </script>
     """, height=0)
+    st.session_state.start_processing = False
 
 st.markdown("---")
 if "all_folder_links" in st.session_state and st.session_state.all_folder_links:
@@ -209,7 +233,6 @@ if "all_folder_links" in st.session_state and st.session_state.all_folder_links:
                     import json
                     bot_path = os.path.join(os.path.dirname(__file__), "src", "automation", "notebooklm_bot.py")
                     
-                    # リンクを一時ファイルに保存して渡す（文字数オーバー対策）
                     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as tf:
                         json.dump({"links": links, "notebook_name": base_label}, tf)
                         temp_file_path = tf.name
@@ -217,7 +240,6 @@ if "all_folder_links" in st.session_state and st.session_state.all_folder_links:
                     subprocess.Popen([sys.executable, bot_path, temp_file_path])
                     st.success("🤖 ブラウザを起動しました！別ウィンドウでお待ちください（初回は手動でGoogleログインが必要です）。")
 elif "start_processing" in st.session_state and st.session_state.start_processing:
-    # If it was processed but nothing found
     if not st.session_state.all_folder_links:
         st.warning("アップロードに成功した銘柄がありませんでした。")
 
@@ -226,7 +248,6 @@ st.markdown("### 🛠 既存のURLをNotebookLMに転送 (手動入力)")
 with st.expander("既にGoogle DriveにあるURLを転送する場合はこちら"):
     st.info("過去に生成したGoogle DriveのフォルダURL、またはファイルURLリストを直接入力してください。")
     
-    # フォルダURL
     folder_url_input = st.text_input("📁 Google Drive フォルダURL", key="folder_url_input", help="ここにフォルダURLを貼り付けてボタンを押すと、自動でNotebookLMへ転送されます。")
     if st.button("🤖 フォルダURLからNotebookLMに一括転送", key="bot_folder"):
         if folder_url_input:
@@ -242,7 +263,6 @@ with st.expander("既にGoogle DriveにあるURLを転送する場合はこち�
                     import json
                     bot_path = os.path.join(os.path.dirname(__file__), "src", "automation", "notebooklm_bot.py")
                     
-                    # リンクを一時ファイルに保存して渡す（文字数オーバー対策）
                     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as tf:
                         json.dump({"links": fetched_links, "notebook_name": fetched_folder_name}, tf)
                         temp_file_path = tf.name
@@ -254,5 +274,3 @@ with st.expander("既にGoogle DriveにあるURLを転送する場合はこち�
                 st.error(f"エラーが発生しました: {e}")
         else:
             st.warning("フォルダURLを入力してください。")
-            
-

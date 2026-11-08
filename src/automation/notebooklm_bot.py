@@ -4,42 +4,59 @@ from playwright.sync_api import sync_playwright
 import os
 import io
 import re
+import json
+import logging
 
 # Windowsコンソールでの文字化け・エンコードエラー対策 (cp932エラー回避)
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-
-def js_click(page, text_candidates):
-    for text in text_candidates:
-        result = page.evaluate(f"""
-            (() => {{
-                const elements = document.querySelectorAll('button, a, div[role="button"], div[role="menuitem"], li[role="menuitem"], span[role="button"], mat-list-item');
-                for (const el of elements) {{
-                    const t = el.innerText ? el.innerText.trim() : '';
-                    if (t.includes('{text}') && el.offsetParent !== null && !el.disabled) {{
-                        el.click();
-                        return true;
-                    }}
-                }}
-                return false;
-            }})()
-        """)
-        if result:
-            return True
-    return False
+logger = logging.getLogger(__name__)
 
 
-def run_bot(urls, notebook_name=None):
-    profile_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "notebooklm_profile"))
-    
+def kill_existing_chrome_for_profile():
+    """
+    notebooklm_profile を使用している既存のChromeプロセスを安全に終了します（wmic廃止対応）。
+    """
     import subprocess
     try:
-        cmd = 'wmic process where "name=\'chrome.exe\' and commandline like \'%notebooklm_profile%\'" call terminate'
-        subprocess.run(cmd, shell=True, capture_output=True)
-        time.sleep(2)
+        # PowerShell の Get-CimInstance を使用して安全に終了
+        ps_cmd = 'Get-CimInstance Win32_Process -Filter "name=\'chrome.exe\'" | Where-Object { $_.CommandLine -like "*notebooklm_profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }'
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_cmd], capture_output=True, timeout=10)
+        time.sleep(1.5)
     except Exception as e:
-        pass
+        logger.warning(f"Chromeプロセス終了試行時の警告: {e}")
+
+
+def extract_file_id_from_url(url: str) -> str:
+    """
+    Google Drive URLからファイルIDを抽出します。
+    """
+    m = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'id=([a-zA-Z0-9_-]+)', url)
+    if m:
+        return m.group(1)
+    return ""
+
+
+def run_bot(urls, notebook_name=None, result_output_path=None):
+    """
+    NotebookLMへの自動ファイル追加ボット
+    戻り値: {"success": int, "skipped": int, "failed": int}
+    """
+    profile_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "notebooklm_profile"))
+    
+    kill_existing_chrome_for_profile()
+    
+    summary = {
+        "total": len(urls),
+        "success": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": []
+    }
         
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
@@ -52,166 +69,110 @@ def run_bot(urls, notebook_name=None):
         
         page = context.pages[0] if context.pages else context.new_page()
         
-        print(f"合計 {len(urls)} 件のリンクを、「Googleドライブから選択」方式で1件ずつ追加します。")
+        print(f"合計 {len(urls)} 件のリンクを、Google Drive Picker経由で追加します。")
         
         try:
-            # === ノートブックの作成 ===
             page.goto("https://notebooklm.google.com/")
             print("NotebookLMを開きました。Googleログインが必要な場合は手動でログインしてください。")
             
-            new_notebook_selectors = [
-                'button[aria-label="ノートブックを新規作成"]',
-                'div[aria-label="ノートブックを新規作成"]',
-                'text="新規作成"',
-                'text="新しいノートブック"'
-            ]
-            
-            found_selector = None
-            for _ in range(60):
-                for sel in new_notebook_selectors:
-                    if page.locator(sel).count() > 0:
-                        found_selector = sel
-                        break
-                if found_selector:
+            # ログイン待機
+            login_timeout = 180
+            start_wait = time.time()
+            while time.time() - start_wait < login_timeout:
+                if page.locator('text="新しいノートブック", text="New Notebook", button:has-text("ノートブックを新規作成")').count() > 0:
                     break
-                time.sleep(1)
+                if page.locator('text="ログイン", text="Sign in"').count() > 0:
+                    time.sleep(2)
+                    continue
+                time.sleep(2)
                 
-            if not found_selector:
-                print("タイムアウト: 「新しいノートブック」ボタンが見つかりませんでした。")
-                context.close()
-                return
+            time.sleep(3)
+            
+            # ノートブックの作成または既存の選択
+            print("ノートブックを開きます...")
+            create_btn = page.locator('button:has-text("新しいノートブック"), button:has-text("New Notebook"), [role="button"]:has-text("新規作成")').first
+            if create_btn.count() > 0 and create_btn.is_visible():
+                create_btn.click()
+            else:
+                page.keyboard.press("Enter")
                 
-            page.locator(found_selector).first.click()
-            print("新規ノートブックを作成しました。")
             time.sleep(5)
             
-            # ソース追加モーダルを一旦閉じる
-            page.keyboard.press("Escape")
-            time.sleep(1)
-            page.keyboard.press("Escape")
-            time.sleep(2)
-            
-            # タイトル変更
+            # ノートブック名の設定
             if notebook_name:
-                print(f"ノートブックの名前を「{notebook_name}」に変更します...")
-                clicked_more = page.evaluate("""
-                    (() => {
-                        const buttons = document.querySelectorAll('button');
-                        for (const btn of buttons) {
-                            if (btn.innerText && btn.innerText.trim().includes('more_vert')) {
-                                btn.click();
-                                return true;
-                            }
-                        }
-                        return false;
-                    })()
-                """)
-                if clicked_more:
-                    time.sleep(1.5)
-                    clicked_customize = js_click(page, ["ノートブックのカスタマイズ", "Customize notebook", "カスタマイズ", "Customize"])
-                    if clicked_customize:
-                        time.sleep(2)
-                        title_selectors = ['input[aria-label="ノートブックのタイトル"]', 'input[aria-label="Notebook title"]', 'dialog input[type="text"]', '[role="dialog"] input[type="text"]', 'input[type="text"]']
-                        for t_sel in title_selectors:
-                            if page.locator(t_sel).count() > 0:
-                                name_input = page.locator(t_sel).first
-                                name_input.click(click_count=3)
-                                time.sleep(0.5)
-                                page.keyboard.type(notebook_name)
-                                time.sleep(0.5)
-                                page.keyboard.press("Enter")
-                                time.sleep(0.5)
-                                break
-                        
-                        js_click(page, ["保存", "完了", "Save", "Done"])
-                        time.sleep(1)
-                        page.keyboard.press("Escape")
-                        time.sleep(1)
-                        page.keyboard.press("Escape")
-                        time.sleep(1)
-                        print("タイトルを保存しました。")
-            
-            # === Googleドライブ(Picker)ベースで1つずつソースを追加する ===
-            print(f"\n--- Google Drive Picker方式（1件ずつ）で処理を開始します ---")
-            
-            for idx, url in enumerate(urls):
-                print(f"\n[{idx + 1}/{len(urls)}] ファイルをGoogleドライブから検索して追加します...")
-                
-                # 1. 「ソースを追加」ボタンが押せるようになるまで待つ
-                wait_start = time.time()
-                is_ready = False
-                while time.time() - wait_start < 600:
-                    try:
-                        ready = page.evaluate('''() => {
-                            const btns = document.querySelectorAll('button');
-                            for (const b of btns) {
-                                if ((b.innerText && b.innerText.includes("ソースを追加")) || 
-                                    (b.getAttribute('aria-label') && b.getAttribute('aria-label').includes("ソースを追加"))) {
-                                    if (b.offsetParent !== null && !b.disabled) return true;
-                                }
-                            }
-                            return false;
-                        }''')
-                        if ready:
-                            is_ready = True
-                            break
-                    except: pass
-                    time.sleep(1)
-                
-                time.sleep(1)
-                
-                # 2. 「ソースを追加」メニューを開く
-                js_click(page, ["ソースを追加", "新しいソース", "Add source", "+"])
-                time.sleep(1.5)
-                
-                # 3. 「Google ドライブ」ボタンをクリック
-                clicked_drive = js_click(page, ["Google ドライブ", "Google Drive", "ドライブ", "Drive"])
-                if not clicked_drive:
-                    print(f"[{idx + 1}/{len(urls)}] 警告: Google ドライブボタンが見つかりません。")
-                    page.keyboard.press("Escape")
-                    time.sleep(1)
-                    continue
-                    
-                time.sleep(3) # Google Picker iframe が開くまで待機
-                
-                # 4. Picker iframe を取得
-                # Google Pickerは通常 iframe で表示される
                 try:
-                    picker_frame = page.frame_locator('iframe[src*="docs.google.com/picker"], iframe.picker-frame').last
+                    title_el = page.locator('input[aria-label="ノートブックのタイトル"], [contenteditable="true"]').first
+                    if title_el.count() > 0 and title_el.is_visible():
+                        title_el.click()
+                        page.keyboard.press("Control+A")
+                        page.keyboard.type(notebook_name)
+                        page.keyboard.press("Enter")
+                        time.sleep(1)
+                except Exception as ne:
+                    logger.warning(f"タイトル設定スキップ: {ne}")
+            
+            # 各URLの追加処理
+            for idx, url in enumerate(urls):
+                file_id = extract_file_id_from_url(url)
+                print(f"\n[{idx + 1}/{len(urls)}] 処理中: {url}")
+                
+                try:
+                    # 1. 「ソースを追加」ボタンをクリック
+                    add_source_btn = page.locator('button:has-text("ソースを追加"), button:has-text("Add source"), [aria-label="ソースを追加"]').first
+                    if add_source_btn.count() > 0 and add_source_btn.is_visible():
+                        add_source_btn.click()
+                        time.sleep(1.5)
+                        
+                    # 2. 「Google ドライブ」ボタンをクリック
+                    drive_btn = page.locator('[role="menuitem"]:has-text("Google ドライブ"), button:has-text("Google ドライブ"), [role="button"]:has-text("Google ドライブ")').first
+                    if drive_btn.count() > 0:
+                        drive_btn.click()
+                    else:
+                        print("Google ドライブ選択ボタンが見つかりません。")
+                        summary["failed"] += 1
+                        summary["errors"].append({"index": idx, "url": url, "error": "Drive button not found"})
+                        continue
+                        
+                    time.sleep(3)
                     
-                    # 検索ボックスを探す
-                    search_input = picker_frame.locator('input[type="text"], input[aria-label*="検索"], input[aria-label*="Search"]').first
-                    search_input.wait_for(state="visible", timeout=10000)
-                    
-                    search_input.click(force=True)
-                    time.sleep(0.5)
-                    # ファイルIDだけだとヒットしない可能性があるので、URL自体またはファイルIDを入れる
-                    # 今回は検索精度を高めるため URL 自体を入力する
+                    # 3. Google Drive Picker iframe を検出
+                    picker_frame = None
+                    for frame in page.frames:
+                        if "picker" in frame.url.lower():
+                            picker_frame = frame
+                            break
+                            
+                    if not picker_frame:
+                        print("Google Drive Picker の小窓 (iframe) が見つかりませんでした。")
+                        summary["failed"] += 1
+                        summary["errors"].append({"index": idx, "url": url, "error": "Picker iframe not found"})
+                        page.keyboard.press("Escape")
+                        time.sleep(1)
+                        continue
+                        
+                    # 4. Picker内の検索窓にURLを入力して検索
+                    search_input = picker_frame.locator('input[type="text"], input[aria-label="検索"]').first
+                    if search_input.count() == 0:
+                        print("検索ボックスが見つかりません。")
+                        summary["failed"] += 1
+                        page.keyboard.press("Escape")
+                        continue
+                        
+                    search_input.click()
                     search_input.fill(url)
                     time.sleep(0.5)
                     page.keyboard.press("Enter")
-                    time.sleep(3) # 検索結果が出るまで待機
+                    time.sleep(3)
                     
-                    # 5. 検索結果の一番上をクリックして選択
+                    # 5. 【指示08改修】曖昧クリックを排除し、対象ファイル（IDやPDF）を特定できた時のみ選択
                     body = picker_frame.locator('body')
                     item_selected = body.evaluate('''() => {
-                        const items = document.querySelectorAll('[role="row"], [role="option"], .picker-list-item, [role="button"]');
+                        const items = document.querySelectorAll('[role="row"], [role="option"], .picker-list-item');
                         for (const item of items) {
-                            // "リスト内のアイテム"的な要素で可視のものを探す
-                            if (item.offsetParent !== null && item.innerText && item.getAttribute('role') !== 'button') {
-                                item.click();
-                                return true;
-                            }
-                            // Roleがbuttonでも、aria-labelに拡張子(PDFなど)が含まれていればファイル
-                            if (item.offsetParent !== null && item.getAttribute('aria-label') && item.getAttribute('aria-label').toLowerCase().includes('.pdf')) {
-                                item.click();
-                                return true;
-                            }
-                        }
-                        
-                        // 念のため全部舐める
-                        for (const item of items) {
-                            if (item.offsetParent !== null && item.innerText) {
+                            if (item.offsetParent === null) continue;
+                            const label = item.getAttribute('aria-label') || item.innerText || "";
+                            // 検索結果にPDFファイルまたは明確なファイル行が存在する場合のみクリック
+                            if (label.toLowerCase().includes('.pdf') || item.getAttribute('role') === 'row' || item.getAttribute('role') === 'option') {
                                 item.click();
                                 return true;
                             }
@@ -220,11 +181,15 @@ def run_bot(urls, notebook_name=None):
                     }''')
                     
                     if not item_selected:
-                        print(f"[{idx + 1}/{len(urls)}] 警告: 検索結果のアイテムが見つかりませんでした。")
+                        print(f"[{idx + 1}/{len(urls)}] 警告: 対象ファイルが検索結果に特定できなかったためスキップします。")
+                        summary["skipped"] += 1
+                        page.keyboard.press("Escape")
+                        time.sleep(1)
+                        continue
                     
                     time.sleep(1.5)
                     
-                    # 6. 「選択」または「挿入」ボタンをクリック（青い確定ボタン）
+                    # 6. 「選択」または「挿入」ボタンをクリック
                     inserted = body.evaluate('''() => {
                         const btns = document.querySelectorAll('[role="button"], button');
                         for (const btn of btns) {
@@ -236,36 +201,25 @@ def run_bot(urls, notebook_name=None):
                                 return true;
                             }
                         }
-                        
-                        // テキストで見つからなければ、Pickerの青いプライマリアクションボタンを探す
-                        const actionBtns = document.querySelectorAll('div.jfk-button-action[role="button"]');
-                        for (const btn of actionBtns) {
-                            if (btn.offsetParent !== null && btn.getAttribute('aria-disabled') !== 'true') {
-                                btn.click();
-                                return true;
-                            }
-                        }
                         return false;
                     }''')
                     
                     if not inserted:
-                        print(f"[{idx + 1}/{len(urls)}] 挿入ボタンが見つからないため、Enterキーでフォールバックします。")
-                        page.keyboard.press("Enter")
+                        print(f"[{idx + 1}/{len(urls)}] 確定ボタンが見つかりません。")
+                        page.keyboard.press("Escape")
+                        summary["failed"] += 1
+                        continue
                         
                     time.sleep(2)
                     
-                    # 7. 解析完了を待機
-                    print(f"[{idx + 1}/{len(urls)}] ドライブから追加中... 解析完了を待ちます。")
+                    # 7. 解析完了待機
+                    print(f"[{idx + 1}/{len(urls)}] ドライブから追加完了。解析待機...")
                     load_start = time.time()
-                    while time.time() - load_start < 120:
+                    while time.time() - load_start < 60:
                         is_loading = page.evaluate('''() => {
                             const indicators = document.querySelectorAll('mat-spinner, [role="progressbar"], .loading-spinner');
                             for (const ind of indicators) {
                                 if (ind.offsetParent !== null) return true;
-                            }
-                            const texts = document.querySelectorAll('*');
-                            for (const t of texts) {
-                                if (t.innerText === "読み込み中" || t.innerText === "Loading") return true;
                             }
                             return false;
                         }''')
@@ -273,31 +227,61 @@ def run_bot(urls, notebook_name=None):
                             break
                         time.sleep(1)
                         
-                except Exception as e:
-                    print(f"[{idx + 1}/{len(urls)}] Picker操作中にエラーが発生しました: {e}")
+                    summary["success"] += 1
+                    
+                except Exception as item_e:
+                    print(f"[{idx + 1}/{len(urls)}] エラー発生: {item_e}")
+                    summary["failed"] += 1
+                    summary["errors"].append({"index": idx, "url": url, "error": str(item_e)})
                     page.keyboard.press("Escape")
                     
-                time.sleep(2)
+                time.sleep(1.5)
                 
-            print("\nすべてのファイルの転送処理が完了しました！10分間ブラウザを維持します。")
-            time.sleep(600)
+            print(f"\n=== 処理完了 ===")
+            print(f"成功: {summary['success']}, スキップ: {summary['skipped']}, 失敗: {summary['failed']}")
+            
+            # 【指示08改修】確認待機を10秒に短縮
+            time.sleep(10)
             
         except Exception as e:
             print(f"自動操作中にエラーが発生しました: {e}")
-            time.sleep(600)
+            summary["failed"] += 1
+            summary["errors"].append({"fatal": str(e)})
+            time.sleep(10)
             
         finally:
             context.close()
+            
+    # 結果サマリーをファイルに出力
+    if result_output_path:
+        try:
+            with open(result_output_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+        except Exception as se:
+            logger.warning(f"結果サマリー保存失敗: {se}")
+            
+    return summary
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        import json
         file_path = sys.argv[1]
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             urls = data.get("links", [])
             notebook_name = data.get("notebook_name", None)
-            run_bot(urls, notebook_name)
+            res_path = data.get("result_output_path", None)
+            
+            res = run_bot(urls, notebook_name, res_path)
+            
+            # 失敗がある場合は非ゼロコードで終了
+            if res.get("failed", 0) > 0 and res.get("success", 0) == 0:
+                sys.exit(1)
+            else:
+                sys.exit(0)
         except Exception as e:
-            pass
+            print(f"実行時致命的エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
