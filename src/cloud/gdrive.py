@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import logging
@@ -6,31 +7,65 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from src.utils.config import GDRIVE_ROOT_FOLDER_ID
+from src.utils.config import GDRIVE_ROOT_FOLDER_ID, GDRIVE_TOKEN_JSON
 
 logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
+def credentials_from_token_value(value):
+    """
+    token.json 相当の値（JSON文字列 または 辞書）から Credentials を生成します。
+    Streamlit Secrets のテーブル形式（辞書）と、環境変数の JSON 文字列の両方に対応します。
+    """
+    if isinstance(value, str):
+        try:
+            info = json.loads(value)
+        except json.JSONDecodeError as e:
+            raise ValueError("GDRIVE_TOKEN_JSON が JSON として読み取れません。token.json の中身をそのまま設定してください。") from e
+    elif isinstance(value, dict):
+        info = dict(value)
+    else:
+        raise ValueError("GDRIVE_TOKEN_JSON の形式が不正です（文字列またはテーブルで設定してください）。")
+    if not isinstance(info, dict) or not info.get("refresh_token"):
+        raise ValueError("GDRIVE_TOKEN_JSON に refresh_token が含まれていません。PCで認可し直して token.json を作り直してください。")
+    return Credentials.from_authorized_user_info(info, SCOPES)
+
+
 def get_gdrive_service():
     """
     Google Drive API v3 のサービスクライアントを取得します。
+
+    認証情報の優先順位:
+    1. Secrets / 環境変数 GDRIVE_TOKEN_JSON（Streamlit Cloud 等、ブラウザ認可ができない環境用）
+    2. ローカルファイル token.json（PC実行用）
+    3. credentials.json による初回対話認可（PC実行専用。token.json を生成して保存）
     """
     creds = None
-    if os.path.exists('token.json'):
+    from_secrets = False
+    if GDRIVE_TOKEN_JSON:
+        creds = credentials_from_token_value(GDRIVE_TOKEN_JSON)
+        from_secrets = True
+    elif os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            if not from_secrets and os.path.exists('token.json'):
+                with open('token.json', 'w') as token:
+                    token.write(creds.to_json())
         else:
             if not os.path.exists('credentials.json'):
-                logger.error("credentials.json が見つかりません。")
-                raise FileNotFoundError("Google Drive API OAuth 認証ファイル (credentials.json) が存在しません。")
-            
+                logger.error("Google Drive の認証情報が見つかりません。")
+                raise RuntimeError(
+                    "Google Drive の認証情報がありません。ローカルPCでは credentials.json を置いて初回認可してください。"
+                    "Streamlit Cloud では Secrets に GDRIVE_TOKEN_JSON（PCで生成した token.json の中身）を設定してください。"
+                )
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
 
     return build('drive', 'v3', credentials=creds)
 
