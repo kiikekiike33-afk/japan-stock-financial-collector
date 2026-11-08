@@ -1,0 +1,12 @@
+streamlit
+requests
+beautifulsoup4
+PyMuPDF
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+python-dotenv
+pandas
+duckduckgo_search
+yfinance
+playwright

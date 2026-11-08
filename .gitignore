@@ -1,0 +1,40 @@
+# 仮想環境・キャッシュ
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# 機密情報・APIキー・認証情報 (絶対にコミットしない)
+.env
+*.env
+credentials.json
+token.json
+client_secret*.json
+
+# ブラウザプロファイル・Cookie・セッション情報
+notebooklm_profile/
+
+# 出力フォルダ・一時ダウンロード・ログ
+output/
+temp_downloads/
+*.zip
+*.log
+streamlit_run.log
+
+# デバッグ用ダンプ・画像・キャッシュ
+debug_*.png
+picker*.png
+notebooklm_*dump.html
+found_buttons.json
+edinet_ticker_cache.json
+
+# 使い捨てテストスクリプト
+test_*.py
+test5.md
+parse_dump.py
+
+# OS関連
+.DS_Store
+Thumbs.db
