@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import time
 from datetime import datetime, timedelta
@@ -13,17 +14,67 @@ EDINET_API_URL = "https://jsite.edinet-fsa.go.jp/api/v2" # The domain might be d
 EDINET_DOC_LIST_URL = "https://disclosure.edinet-fsa.go.jp/api/v2/documents.json"
 EDINET_DOC_GET_URL = "https://disclosure.edinet-fsa.go.jp/api/v2/documents"
 
+# --- 日次書類一覧の共有キャッシュ ---
+# EDINET APIは「日付ごとの一覧」しか引けないため、期間検索は日数分の
+# コールになる。一覧は対象日が過ぎれば変わらないので、過去日分は
+# メモリ＋ディスクにキャッシュし、銘柄横断・同業他社分・再実行で
+# 同じ日付を二度とAPIから取り直さない（初回の全走査だけが残る）。
+_LIST_CACHE_DIR = os.path.join(TEMP_DOWNLOAD_DIR, "edinet_list_cache")
+_list_mem_cache = {}
+
+
+def _list_cache_path(date_str: str) -> str:
+    return os.path.join(_LIST_CACHE_DIR, f"{date_str}.json")
+
+
+def _load_cached_list(date_str: str):
+    if date_str in _list_mem_cache:
+        return _list_mem_cache[date_str]
+    try:
+        path = _list_cache_path(date_str)
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                results = json.load(f)
+            _list_mem_cache[date_str] = results
+            return results
+    except Exception as e:
+        logger.warning(f"EDINET list cache read failed for {date_str}: {e}")
+    return None
+
+
+def _store_cached_list(date_str: str, results, target_date: datetime):
+    _list_mem_cache[date_str] = results
+    # 当日分はまだ増える可能性があるのでディスクには書かない。
+    # 過去日分だけを永続化する（メモリ内キャッシュは当日分も有効）。
+    if target_date.date() >= datetime.now().date():
+        return
+    try:
+        os.makedirs(_LIST_CACHE_DIR, exist_ok=True)
+        tmp = _list_cache_path(date_str) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(results, f, ensure_ascii=False)
+        os.replace(tmp, _list_cache_path(date_str))
+    except Exception as e:
+        logger.warning(f"EDINET list cache write failed for {date_str}: {e}")
+
+
 def get_submission_list_by_date(target_date: datetime):
     """
     Fetches the document list for a specific date from EDINET.
+    Past dates are served from the shared cache when available.
     """
     date_str = target_date.strftime("%Y-%m-%d")
+
+    cached = _load_cached_list(date_str)
+    if cached is not None:
+        return cached
+
     params = {
         "date": date_str,
         "type": 2, # 2 covers all documents including 提出書類
         "Subscription-Key": config.EDINET_API_KEY
     }
-    
+
     # If no API key is set, we try without it (for V1 backwards compatibility testing if any)
     if not config.EDINET_API_KEY:
         params.pop("Subscription-Key")
@@ -35,7 +86,14 @@ def get_submission_list_by_date(target_date: datetime):
         if "message" in data and "Access denied" in data["message"]:
              logger.error("EDINET API Key is invalid or missing: " + data["message"])
              raise ValueError("EDINET APIキーが無効、または設定されていません。正しいキーを入力してください。")
-        return data.get("results", [])
+        results = data.get("results", []) or []
+        # 失敗時（下の except で [] を返す経路）とは区別し、成功した
+        # 結果だけをキャッシュする。空の成功結果も正規の結果として保存する。
+        _store_cached_list(date_str, results, target_date)
+        # APIへの礼儀的な間隔は、実際にネットワーク取得した時だけ入れる
+        # （キャッシュヒット時にまで待つと期間検索が無駄に遅くなるため）
+        time.sleep(0.1)
+        return results
     except Exception as e:
         if isinstance(e, ValueError): raise e
         logger.warning(f"Failed to fetch document list for {date_str}: {e}")
@@ -110,10 +168,10 @@ def search_documents(ticker: str, edinet_code: str = None, years: int = 1, progr
         if progress_callback:
             # Report progress percentage (0.0 to 1.0)
             progress_callback(days_processed / total_days)
-            
-        # Adhere to rate limit, avoid spamming EDINET
-        time.sleep(0.1)
-        
+
+        # レート制限対策の sleep は get_submission_list_by_date の
+        # ネットワーク取得時だけに入る（キャッシュ時は待たない）
+
     return found_documents
 
 def download_pdf(doc_id: str, save_filename: str):

@@ -10,3 +10,5 @@ pandas
 duckduckgo_search
 yfinance
 playwright
+matplotlib
+japanize-matplotlib
