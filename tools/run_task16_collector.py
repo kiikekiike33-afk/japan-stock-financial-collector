@@ -10,6 +10,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(project_root)
 sys.path.insert(0, project_root)
 
+from src.utils.logger import setup_collector_logger
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ import src.utils.config as config
 
 def main():
     ticker = "1965"
+    setup_collector_logger(ticker)
     target_years = 5  # 標準設定: 過去5年
     merge_options = True
     fetch_esg = True
