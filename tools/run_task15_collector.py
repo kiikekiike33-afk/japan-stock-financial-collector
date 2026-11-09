@@ -4,6 +4,7 @@ import time
 import json
 import logging
 from datetime import datetime
+from src.utils.logger import setup_collector_logger
 
 # プロジェクトルートをパスに追加
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +25,7 @@ import src.utils.config as config
 
 def main():
     ticker = "446A"
+    setup_collector_logger(ticker)
     target_years = 5  # 標準設定: 過去5年
     merge_options = True
     fetch_esg = True

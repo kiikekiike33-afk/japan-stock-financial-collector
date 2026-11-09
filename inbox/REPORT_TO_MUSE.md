@@ -278,3 +278,26 @@
   - **未取得**: ESG・統合報告書（DuckDuckGoにて「テクノ菱和 統合報告書 filetype:pdf」「テクノ菱和 ESGデータブック filetype:pdf」等を検索したものの、公式発行の単体PDFは存在せず。有価証券報告書等の法定開示資料内に情報が含まれているため実質的な影響なし）。
   - **失敗**: 0件（EDINET・TDnet・株価データ・PDF結合・Google Driveアップロードすべてエラーなしで正常完了）。
 - **所要時間**: 149.37 秒（約2分29秒）
+
+
+## ログ共有の標準化および定期同期タスク無効化（2026-11-09）
+
+- **実施日時**: 2026-11-09 19:49
+- **実施内容**:
+  1. **ログ集約先フォルダの作成と権限設定**:
+     - `C:\MuseShare\japan-stock-financial-collector\` を作成。
+     - SSH用アカウント `muse` に対して読み取り権限（ReadAndExecute: `RX`）を付与（`icacls` にて設定完了）。
+     - プロジェクト内 `logs/` フォルダに対しても同様に `muse` への読み取り権限を付与。
+     - ※`token.json`、`credentials.json`、`.env` 等の認証情報ファイルは一切権限付与対象およびコピー対象に含めていません。
+  2. **ログ出力・共有モジュールの導入（`src/utils/logger.py`）**:
+     - 収集実行ログをローカル `logs/collector_{ticker}_{timestamp}.log` と共有先 `C:\MuseShare\japan-stock-financial-collector\collector_{ticker}_{timestamp}.log` にリアルタイムで同時出力する `setup_collector_logger` を実装。
+     - 終了時に最新ログを `collector_latest.log` として更新コピーする仕組みおよび `sync_all_logs_to_muse_share()` による全ログ同期処理を実装。
+     - `app.py`、`tools/run_task15_collector.py`、`tools/run_task16_collector.py` に組み込み完了。
+  3. **自動同期ログの共有（`tools/auto_sync.ps1`）**:
+     - `auto_sync.ps1` のログ書き込み関数を改修し、`C:\MuseShare\japan-stock-financial-collector\auto_sync.log` にも自動追記されるよう対応。
+  4. **認証情報の非含有点検**:
+     - ログファイルおよびログ出力コードを全件点検し、APIキーやOAuthトークン、シークレット等の認証情報が一切含まれていないことを確認。
+  5. **Windows タスクスケジューラのタスク無効化**:
+     - 対象タスク正式名: `japan_stock_collector_auto_sync`
+     - コマンド: `Disable-ScheduledTask -TaskName "japan_stock_collector_auto_sync"` を実行。
+     - 状態: `Disabled`（無効化完了。タスクは削除せず保持）。

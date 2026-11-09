@@ -71,6 +71,7 @@ if start_button:
         st.stop()
     
     from src.utils.mapper import ticker_to_edinet, get_company_name
+    from src.utils.logger import setup_collector_logger
     from src.api.edinet import fetch_and_save_edinet_reports
     from src.api.tdnet import search_and_download_tdnet_docs
     from src.api.esg_reports import fetch_integrated_esg_reports
@@ -126,6 +127,7 @@ if start_button:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            setup_collector_logger(ticker)
             downloaded_files = []
             
             try:
