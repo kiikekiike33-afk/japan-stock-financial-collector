@@ -19,6 +19,7 @@ from src.api.edinet import fetch_and_save_edinet_reports
 from src.api.tdnet import search_and_download_tdnet_docs
 from src.api.esg_reports import fetch_integrated_esg_reports
 from src.processing.pdf_merger import group_and_merge_by_year
+from src.processing.pdf_text_extractor import extract_texts_for_pdfs
 from src.cloud.gdrive import upload_to_drive
 from src.api.stock_data import fetch_3y_stock_data
 import src.utils.config as config
@@ -129,6 +130,15 @@ def main():
         
     upload_targets.extend(csv_files)
     summary["upload_targets"] = upload_targets
+
+    # 5.5 テキスト抽出処理 (PyMuPDF)
+    logger.info("--- 5.5 テキスト抽出処理 (PyMuPDF) ---")
+    all_target_pdfs = list(dict.fromkeys(pdf_files + (merged_files if merge_options else [])))
+    txt_files, low_text_reports = extract_texts_for_pdfs(all_target_pdfs)
+    upload_targets.extend(txt_files)
+    summary["extracted_txt_files"] = txt_files
+    summary["low_text_reports"] = low_text_reports
+    logger.info(f"生成テキストファイル件数: {len(txt_files)}, 低文字数PDF: {len(low_text_reports)}件")
 
     # 6. Google Driveへアップロード
     logger.info("--- 6. Google Drive アップロード ---")

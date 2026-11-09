@@ -301,3 +301,34 @@
      - 対象タスク正式名: `japan_stock_collector_auto_sync`
      - コマンド: `Disable-ScheduledTask -TaskName "japan_stock_collector_auto_sync"` を実行。
      - 状態: `Disabled`（無効化完了。タスクは削除せず保持）。
+
+
+## 収集PDFテキスト抽出機能（PyMuPDF）の実装と既存分遡及適用（2026-11-09）
+
+- **実施日時**: 2026-11-09 20:01
+- **実施内容**:
+  1. **テキスト抽出モジュールの新設（`src/processing/pdf_text_extractor.py`）**:
+     - PyMuPDF（MuPDF）を用いてPDFからテキストを抽出し、同名の `.txt`（UTF-8）を生成する処理を実装。
+     - 総文字数とページ数を集計し、目安（`総文字数 < ページ数 × 100`）に該当する低文字数PDFを検知・記録する機能を導入。
+  2. **収集パイプライン・実行スクリプトへの組み込み**:
+     - `app.py`、`tools/run_task15_collector.py`、`tools/run_task16_collector.py` において、PDF結合後・Google Driveアップロード前のステップにテキスト抽出処理を組み込み。
+     - 収集した個別PDFと結合後PDFの双方から `.txt` を自動生成し、PDFと一緒にGoogle Driveの銘柄フォルダへアップロードする仕様に標準化。
+  3. **既存分（446A ノースサンド、1965 テクノ菱和）への遡及適用**:
+     - 遡及実行スクリプト（`tools/retroactive_text_extraction.py`）を作成・実行。
+     - ログは標準ルールに則り `C:\MuseShare\japan-stock-financial-collector\` に出力。
+     - **446A（ノースサンド）**:
+       - 対象PDF: 19件（個別PDF 13件＋結合PDF 6件）
+       - 生成 `.txt`: 19件
+       - Google Drive アップロード: 19件完了（フォルダ: `446A_ノースサンド_NotebookLMソース`）
+       - 低文字数PDF（目安: 総文字数 < 頁数×100）: **0件**（全件で十分な文字数を抽出）
+     - **1965（テクノ菱和）**:
+       - 対象PDF: 63件（個別PDF 42件＋結合PDF 21件）
+       - 生成 `.txt`: 63件
+       - Google Drive アップロード: 63件完了（フォルダ: `1965_テクノ菱和_NotebookLMソース`）
+       - 低文字数PDF（目安: 総文字数 < 頁数×100）: **0件**（全件で十分な文字数を抽出、有報5年分各10万字超を含む）
+  4. **単体テストの追加と確認**:
+     - `tests/test_pdf_text_extractor.py`（通常PDF、低文字数PDF、一括処理の3テスト）を追加。
+     - 単体テスト全7件を実行し全件パス（`Ran 7 tests in 0.489s, OK`）を確認。
+  5. **Push前 秘密スキャン（新ルール）の実施**:
+     - `tools/security_scan.py` を作成・実行。
+     - 機密ファイル（`.env`, `token.json` 等）の混入なし、差分内および共有ログ内の認証情報混入なし（`[OK]`）を確認。
