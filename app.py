@@ -71,10 +71,12 @@ if start_button:
         st.stop()
     
     from src.utils.mapper import ticker_to_edinet, get_company_name
+    from src.utils.logger import setup_collector_logger
     from src.api.edinet import fetch_and_save_edinet_reports
     from src.api.tdnet import search_and_download_tdnet_docs
     from src.api.esg_reports import fetch_integrated_esg_reports
     from src.processing.pdf_merger import group_and_merge_by_year
+    from src.processing.pdf_text_extractor import extract_texts_for_pdfs
     from src.cloud.gdrive import upload_to_drive
     from src.api.stock_data import fetch_3y_stock_data
     
@@ -126,6 +128,7 @@ if start_button:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            setup_collector_logger(ticker)
             downloaded_files = []
             
             try:
@@ -179,6 +182,12 @@ if start_button:
                 upload_targets.extend(csv_files)
                 
                 progress_bar.progress(85)
+                
+                # 5.5 テキスト抽出処理 (PyMuPDF)
+                status_text.text("収集PDFおよび結合PDFからテキストを抽出中 (PyMuPDF)...")
+                all_target_pdfs = list(dict.fromkeys(pdf_files + (merged_files if merge_options else [])))
+                txt_files, low_text_reports = extract_texts_for_pdfs(all_target_pdfs)
+                upload_targets.extend(txt_files)
                 
                 # 6. Google Driveへアップロード
                 status_text.text("Google Driveへアップロード中...")

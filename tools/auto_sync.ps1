@@ -17,6 +17,8 @@ $ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $LogDir = Join-Path $RepoRoot "logs"
 $LogFile = Join-Path $LogDir "auto_sync.log"
+$MuseShareDir = "C:\MuseShare\japan-stock-financial-collector"
+$MuseLogFile = Join-Path $MuseShareDir "auto_sync.log"
 
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -27,6 +29,9 @@ function Write-SyncLog {
     $Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $Line = "[$Timestamp] [$Level] $Message"
     Add-Content -Path $LogFile -Value $Line -Encoding UTF8
+    if (Test-Path $MuseShareDir) {
+        try { Add-Content -Path $MuseLogFile -Value $Line -Encoding UTF8 -ErrorAction SilentlyContinue } catch {}
+    }
     Write-Output $Line
 }
 
