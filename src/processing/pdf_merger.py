@@ -52,7 +52,7 @@ def group_and_merge_by_year(pdf_filepaths: list, ticker: str, company_name: str 
     # 重複パスを削除
     pdf_filepaths = list(dict.fromkeys(pdf_filepaths))
     
-    doc_types = ["決算短信", "有価証券報告書", "四半期報告書", "業績予想修正", "統合報告書", "長期経営計画", "ESGデータ"]
+    doc_types = ["決算短信", "有価証券報告書", "四半期報告書", "半期報告書", "業績予想修正", "統合報告書", "長期経営計画", "ESGデータ"]
         
     # 年度と種別ごとにグループ化
     grouped = {}
