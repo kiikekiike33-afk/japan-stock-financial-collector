@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "ログ共有・auto_sync無効化・PDFテキスト抽出・CI/Dependabot導入",
+  "instruction": "auto-sync→main マージ",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（ログ共有・テキスト抽出・GitHub自動化）",
-  "finished_at": "2026-11-09T20:32:00+09:00",
-  "summary": "ログ共有標準化、定期タスク無効化、PDFテキスト抽出（PyMuPDF）遡及適用、CI/Dependabot導入を完了"
+  "conversation": "日本株収集ツール保守（マージ・ログ共有・テキスト抽出・GitHub自動化）",
+  "finished_at": "2026-11-09T20:42:30+09:00",
+  "summary": "auto-syncをmainへマージ完了。単体テスト全11件パス、秘密スキャン合格"
 }
