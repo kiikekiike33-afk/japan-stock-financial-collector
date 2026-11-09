@@ -10,9 +10,9 @@ from src.utils.config import TEMP_DOWNLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
-EDINET_API_URL = "https://disclosure.edinet-fsa.go.jp/api/v2"
-EDINET_DOC_LIST_URL = "https://disclosure.edinet-fsa.go.jp/api/v2/documents.json"
-EDINET_DOC_GET_URL = "https://disclosure.edinet-fsa.go.jp/api/v2/documents"
+EDINET_API_URL = "https://api.edinet-fsa.go.jp/api/v2"
+EDINET_DOC_LIST_URL = "https://api.edinet-fsa.go.jp/api/v2/documents.json"
+EDINET_DOC_GET_URL = "https://api.edinet-fsa.go.jp/api/v2/documents"
 
 # 最大ダウンロード・ZIP展開サイズ上限（100MB）
 MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024
@@ -119,7 +119,7 @@ def search_documents(ticker: str, edinet_code: str = None, years: int = 1, progr
     total_days = max(1, (end_date - start_date).days)
     days_processed = 0
     
-    target_doc_types = ["120", "140"]
+    target_doc_types = ["120", "140", "160"]
     logger.info(f"EDINET書類検索: ticker={ticker}, edinet={edinet_code} ({start_date.date()} 〜 {end_date.date()})")
     
     while current_date >= start_date:
@@ -242,7 +242,12 @@ def fetch_and_save_edinet_reports(ticker: str, edinet_code: str = None, years: i
     downloaded_files = []
     
     for doc in docs:
-        doc_type_str = "有価証券報告書" if doc["docTypeCode"] == "120" else "四半期報告書"
+        if doc["docTypeCode"] == "120":
+            doc_type_str = "有価証券報告書"
+        elif doc["docTypeCode"] == "160":
+            doc_type_str = "半期報告書"
+        else:
+            doc_type_str = "四半期報告書"
         
         # 命名規則: YYYYMMDD_[ドキュメント種別]_[docID]_[証券コード].pdf
         # docIDを含めることで同日・同種別でもファイル名の衝突・上書きを防止

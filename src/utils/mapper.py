@@ -80,7 +80,7 @@ def _build_mapping_from_edinet_api(days: int = 60):
         try:
             date_str = current.strftime('%Y-%m-%d')
             r = requests.get(
-                'https://disclosure.edinet-fsa.go.jp/api/v2/documents.json',
+                'https://api.edinet-fsa.go.jp/api/v2/documents.json',
                 params={'date': date_str, 'type': 2, 'Subscription-Key': EDINET_API_KEY},
                 timeout=15
             )
