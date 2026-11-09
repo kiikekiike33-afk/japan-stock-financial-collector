@@ -332,3 +332,19 @@
   5. **Push前 秘密スキャン（新ルール）の実施**:
      - `tools/security_scan.py` を作成・実行。
      - 機密ファイル（`.env`, `token.json` 等）の混入なし、差分内および共有ログ内の認証情報混入なし（`[OK]`）を確認。
+
+
+## セッション状態の初期化バグ修正（2026-11-09）
+
+- **実施日時**: 2026-11-09 21:48
+- **問題事象**: Streamlit Cloud上で初回実行時に `AttributeError: 'SessionState' object has no attribute 'all_folder_links'`（app.py 238行目）が発生する不具合。
+- **原因**: 238行目の `elif "start_processing" in st.session_state and st.session_state.start_processing:` 分岐内で `all_folder_links` がセッション未設定の状態で評価されたこと、および `all_folder_links` の初期化が `start_button` 押下ブロック内に閉じていたこと。
+- **修正内容**:
+  1. `app.py` 冒頭（トップレベル）で `all_folder_links`、`all_file_links_by_base`、`start_processing` の存在確認と初期化（`[]` / `{}` / `False`）を追加。
+  2. 238行目のアクセスを `if not st.session_state.get("all_folder_links"):` に変更し、安全にガード。
+  3. 兄弟キー `all_file_links_by_base` の追記箇所（201行目）を `.setdefault(base_label, []).extend(file_links)` とし未設定ガードを徹底。
+  4. 処理ロジックそのものは変更せず、未初期化時のガードのみを強化。
+- **確認結果**:
+  - 再現・回帰テストにより、未初期化状態でのエラー解消を確認。
+  - 単体テスト全11件（`tests/` 配下）を実行し全件パス（`Ran 11 tests in 0.599s, OK`）を確認。
+  - Push前 秘密スキャン（`tools/security_scan.py`）合格を確認。

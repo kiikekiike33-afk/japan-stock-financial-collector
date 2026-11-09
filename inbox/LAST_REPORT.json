@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "auto-sync→main マージ",
+  "instruction": "セッション状態の初期化バグ修正",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（マージ・ログ共有・テキスト抽出・GitHub自動化）",
-  "finished_at": "2026-11-09T20:42:30+09:00",
-  "summary": "auto-syncをmainへマージ完了。単体テスト全11件パス、秘密スキャン合格"
+  "conversation": "日本株収集ツール保守（セッション状態の初期化バグ修正）",
+  "finished_at": "2026-11-09T21:48:30+09:00",
+  "summary": "app.pyのall_folder_links未初期化AttributeErrorをガード・冒頭初期化により修正。単体テスト11件全件パス"
 }

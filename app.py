@@ -12,6 +12,14 @@ st.markdown("""
 指定のフォーマットに結合してGoogle Driveへアップロードします。
 """)
 
+# セッション状態の初期化保証
+if "all_folder_links" not in st.session_state:
+    st.session_state.all_folder_links = []
+if "all_file_links_by_base" not in st.session_state:
+    st.session_state.all_file_links_by_base = {}
+if "start_processing" not in st.session_state:
+    st.session_state.start_processing = False
+
 with st.sidebar:
     st.header("設定")
     ticker_input = st.text_input("証券コード (メイン銘柄)", value="")
@@ -198,7 +206,7 @@ if start_button:
                 if folder_link:
                     st.markdown(f"📁 **{display_name}:** [Google Driveで確認]({folder_link})")
                     st.session_state.all_folder_links.append((display_name, folder_link))
-                st.session_state.all_file_links_by_base[base_label].extend(file_links)
+                st.session_state.all_file_links_by_base.setdefault(base_label, []).extend(file_links)
                 
             except Exception as e:
                 status_text.error(f"{display_name} の処理中にエラー: {str(e)}")
@@ -235,5 +243,5 @@ if "all_folder_links" in st.session_state and st.session_state.all_folder_links:
                 st.code("\n".join(links), language="text")
 
 elif "start_processing" in st.session_state and st.session_state.start_processing:
-    if not st.session_state.all_folder_links:
+    if not st.session_state.get("all_folder_links"):
         st.warning("アップロードに成功した銘柄がありませんでした。")
