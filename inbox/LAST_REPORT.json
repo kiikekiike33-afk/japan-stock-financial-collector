@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "auto-sync→main マージ（セッション状態の初期化バグ修正）",
+  "instruction": "保有5銘柄の決算資料収集（リンチ式深掘り用）",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（セッション状態の初期化バグ修正）",
-  "finished_at": "2026-11-09T21:55:00+09:00",
-  "summary": "auto-syncをmainへfast-forwardマージ完了。単体テスト全11件パス、秘密スキャン合格"
+  "conversation": "日本株収集ツール保守（保有5銘柄の決算資料収集）",
+  "finished_at": "2026-11-10T12:59:30+09:00",
+  "summary": "保有5銘柄（2928, 3093, 4755, 9551, 9934）の決算資料収集・結合・テキスト抽出・Driveアップロード完了"
 }
