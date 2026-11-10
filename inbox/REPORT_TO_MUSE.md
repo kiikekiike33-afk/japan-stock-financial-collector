@@ -348,3 +348,70 @@
   - 再現・回帰テストにより、未初期化状態でのエラー解消を確認。
   - 単体テスト全11件（`tests/` 配下）を実行し全件パス（`Ran 11 tests in 0.599s, OK`）を確認。
   - Push前 秘密スキャン（`tools/security_scan.py`）合格を確認。
+
+
+## 保有5銘柄の決算資料収集（リンチ式深掘り用）（2026-11-10）
+
+- **実施日時**: 2026-11-10 12:45
+- **対象銘柄**:
+  1. 2928 RIZAPグループ（EDINETコード: E00518）
+  2. 3093 トレジャー・ファクトリー（EDINETコード: E03520）
+  3. 4755 楽天グループ（EDINETコード: E05080）
+  4. 9551 メタウォーター（EDINETコード: E31064）
+  5. 9934 因幡電機産業（EDINETコード: E02761）
+- **収集条件**:
+  - 標準条件（期間: 過去5年、結合PDF: 有効、ESG: 有効、株価: 有効、同業他社: 無効）
+  - PDFテキスト抽出（PyMuPDF）を全対象（個別PDFおよび結合PDF）に適用
+  - Google Driveへ銘柄別フォルダで結合PDFおよびTXTをアップロード
+- **実行結果サマリー**:
+  - 全5銘柄の収集・結合・テキスト抽出・Driveアップロードが正常完了（致命的エラーなし）。
+  - 収集実行ログ: C:\MuseShare\japan-stock-financial-collector\collector_PORTFOLIO_20261110_122842.log
+  - 詳細結果サマリー: output/portfolio_collector_result.json
+- **各銘柄の取得実績・内訳**:
+  1. **2928 RIZAPグループ**:
+     - EDINET開示: 15件
+     - TDnet適時開示: 67件
+     - 株価データ: 0件（名証ネクスト単独上場のためyfinance対応外。処理はエラーなく正常スキップ）
+     - 結合PDF: 23件
+     - 生成テキスト（.txt）: 105件
+     - Driveアップロード総数: 128件（結合PDF 23件 + TXT 105件）
+     - 低文字数PDF（目安: 総文字数 < 頁数×100）: 0件
+     - Google DriveフォルダURL: https://drive.google.com/drive/folders/1qphnets1bG2k12GO4_doFRK0VNwFNtW4
+  2. **3093 トレジャー・ファクトリー**:
+     - EDINET開示: 16件
+     - TDnet適時開示: 49件
+     - 株価データ: 1件
+     - 結合PDF: 23件
+     - 生成テキスト（.txt）: 89件
+     - Driveアップロード総数: 112件（結合PDF 23件 + TXT 89件）
+     - 低文字数PDF: 0件
+     - Google DriveフォルダURL: https://drive.google.com/drive/folders/10IYrOQvpxU7RKmoQtAJe4S_8jK-XVMj0
+  3. **4755 楽天グループ**:
+     - EDINET開示: 17件
+     - TDnet適時開示: 32件
+     - 株価データ: 1件
+     - 結合PDF: 23件
+     - 生成テキスト（.txt）: 73件
+     - Driveアップロード総数: 96件（結合PDF 23件 + TXT 73件）
+     - 低文字数PDF: 0件
+     - Google DriveフォルダURL: https://drive.google.com/drive/folders/1VoBe40m26A5Tfb2ZXHB9731pPWVupKE7
+  4. **9551 メタウォーター**:
+     - EDINET開示: 15件
+     - TDnet適時開示: 41件
+     - 株価データ: 1件
+     - 結合PDF: 22件
+     - 生成テキスト（.txt）: 79件
+     - Driveアップロード総数: 101件（結合PDF 22件 + TXT 79件）
+     - 低文字数PDF: 0件
+     - Google DriveフォルダURL: https://drive.google.com/drive/folders/1FN2pXqF1zbC5epsphnCh07OiuRG-RkpY
+  5. **9934 因幡電機産業**:
+     - EDINET開示: 15件
+     - TDnet適時開示: 31件
+     - 株価データ: 1件
+     - 結合PDF: 21件
+     - 生成テキスト（.txt）: 68件
+     - Driveアップロード総数: 89件（結合PDF 21件 + TXT 68件）
+     - 低文字数PDF: 1件
+       - ファイル名: 20221018_四半期2023年3月期第2四半期決算短信〔日本基準〕(連結)（11:30）_9934.pdf
+       - 文字数: 280文字 / 10ページ（平均 28.0文字/頁）※表形式主体の画像PDF等による低文字数。テキスト抽出自体は成功しており、TXTファイルもDriveへアップロード済み。
+     - Google DriveフォルダURL: https://drive.google.com/drive/folders/12SrL94nziiQ2SWGypr-Tq9cM8l3GpMS7
