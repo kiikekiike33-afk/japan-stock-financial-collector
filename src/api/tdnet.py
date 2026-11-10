@@ -10,6 +10,17 @@ from src.utils.config import TEMP_DOWNLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
+# TDnet適時開示の収集対象キーワード
+TARGET_KEYWORDS = [
+    # 決算・業績系（既存）
+    "決算短信", "決算説明", "決算補足", "業績予想", "差異",
+    # リスク・ガバナンス系（2026-11-10追加）
+    "不正アクセス", "個人情報", "情報漏えい", "情報漏洩", "不祥事", "調査報告",
+    "特別損失", "特別利益", "訴訟", "行政処分", "お詫び", "サイバー",
+    # 資本政策系（2026-11-10追加）
+    "自己株式", "配当", "株式分割", "株式併合", "子会社", "合併", "事業譲渡"
+]
+
 def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callback=None):
     """
     IR BankからTDnet適時開示PDFを直接検索・ダウンロードします。
@@ -27,7 +38,7 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
     rejected_count = 0  # PDF検証で弾かれた件数
     
     # 対象キーワード
-    target_keywords = ["決算短信", "決算説明", "決算補足", "業績予想", "差異"]
+    target_keywords = TARGET_KEYWORDS
     
     # 取得期間の足切り日時
     end_date = datetime.now()

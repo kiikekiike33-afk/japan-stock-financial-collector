@@ -446,3 +446,56 @@
 - **コード修正案（提案のみ・実装は未実施）**:
   - **案1（推奨・低影響）**: `src/api/tdnet.py` の `target_keywords` にリスク・ガバナンス関連キーワード（`"不正アクセス"`, `"個人情報"`, `"情報漏えい"`, `"情報漏洩"`, `"不祥事"`, `"調査報告"`, `"特別損失"`, `"訴訟"`, `"行政処分"`, `"お詫び"` 等）を追加する。
   - **案2**: `search_and_download_tdnet_docs` に `fetch_all_tdnet=False` などのオプション引数を導入し、深掘り収集時に全開示を取得可能にする。
+
+
+## tdnet.py キーワードフィルタ修正（案1）＋3093漏えい開示の取り込み＋スクリーニング候補8銘柄の収集（2026-11-10）
+
+- **実施日時**: 2026-11-10 20:10
+- **実施内容**:
+  1. **`src/api/tdnet.py` のキーワードリスト拡張（案1＋拡張）**:
+     - `target_keywords` をモジュール定数 `TARGET_KEYWORDS` として定義し、以下のキーワードを追加（関数構造や既存ロジックは一切変更せず拡張のみ実施）：
+       - リスク・ガバナンス系: `"不正アクセス"`, `"個人情報"`, `"情報漏えい"`, `"情報漏洩"`, `"不祥事"`, `"調査報告"`, `"特別損失"`, `"特別利益"`, `"訴訟"`, `"行政処分"`, `"お詫び"`, `"サイバー"`
+       - 資本政策系: `"自己株式"`, `"配当"`, `"株式分割"`, `"株式併合"`, `"子会社"`, `"合併"`, `"事業譲渡"`
+       - 決算・業績系（既存維持）: `"決算短信"`, `"決算説明"`, `"決算補足"`, `"業績予想"`, `"差異"`
+  2. **単体テストの追加と全件パス確認**:
+     - `tests/test_tdnet.py` を新設し、①漏えい・リスク開示の通過、②従来の決算・業績開示の通過、③無関係開示（人事異動等）の除外、④資本政策開示の通過を検証。
+     - 単体テスト全15件を実行し、全件パス（`Ran 15 tests in 0.456s, OK`）を確認。
+  3. **3093 トレジャー・ファクトリーの再収集と漏えい開示4件の収録確認**:
+     - 修正後のコードを用い、標準条件（過去5年）で再収集を実行。
+     - IR Bank上に存在していた漏えい関連の適時開示4件がすべて正常に取得・テキスト抽出・結合され、Google Driveフォルダ「3093_トレジャー・ファクトリー_NotebookLMソース」に収録されたことを確認：
+       - `20261023_当社システムへの不正アクセスによる個人情報漏えいに関するお知らせ（15:30）_3093.txt`（親会社事案）
+       - `20261013_当社連結子会社における不正アクセスによる個人情報漏えいに関する調査結果及び再発防止策について(第三報)（12:00）_3093.txt`
+       - `20260902_当社連結子会社における不正アクセスによる個人情報漏えいに関する専用お問い合わせ窓口開設のお知らせ（13:00）_3093.txt`
+       - `20260828_当社連結子会社における不正アクセスによる個人情報漏えいに関するお知らせ（11:30）_3093.txt`（子会社カインドオル事案第一報）
+       - 結合PDF: `3093_トレジャー・ファクトリー_2026_その他.pdf`（および同テキスト）にも包含
+       - Google DriveフォルダURL: https://drive.google.com/drive/folders/10IYrOQvpxU7RKmoQtAJe4S_8jK-XVMj0
+  4. **スクリーニング候補8銘柄の一括データ収集**:
+     - `tools/run_screening_candidates_collector.py` を作成・実行。
+     - 全8銘柄について標準条件（過去5年、PDF結合有効、ESG有効、株価データ有効、同業他社無効）で収集・結合・テキスト抽出・Driveアップロードを完走（エラー0件）。
+     - 実行ログ: `C:\MuseShare\japan-stock-financial-collector\collector_SCREENING_20261110_190826.log`
+     - 結果サマリー: `output/screening_candidates_result.json`
+     - **各銘柄の取得実績内訳**:
+       1. **6417 SANKYO** (EDINET: E02419):
+          - EDINET: 15件 / TDnet: 89件 / 株価: 1件 / 結合PDF: 23件 / TXT: 128件 / Drive総数: 151件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1h96oalaOX2Y2l5rp3Qm2JSLsl6o63emR
+       2. **7994 オカムラ** (EDINET: E02369):
+          - EDINET: 17件 / TDnet: 49件 / 株価: 1件 / 結合PDF: 23件 / TXT: 90件 / Drive総数: 113件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1oaUBep_utpx_vLRI64Jr02qhYjqtl0am
+       3. **2181 パーソルホールディングス** (EDINET: E21261):
+          - EDINET: 15件 / TDnet: 95件 / 株価: 1件 / 結合PDF: 22件 / TXT: 133件 / Drive総数: 155件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1j-6TPtcXRC3ZeBJKBmhj2G_UpDvnoy9g
+       4. **6750 エレコム** (EDINET: E02066):
+          - EDINET: 14件 / TDnet: 81件 / 株価: 1件 / 結合PDF: 23件 / TXT: 119件 / Drive総数: 142件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1vCNamQgTn5T_PkB0nNcyjpxRnaJZAd-E
+       5. **4012 アクシス** (EDINET: E35959):
+          - EDINET: 16件 / TDnet: 52件 / 株価: 1件 / 結合PDF: 24件 / TXT: 93件 / Drive総数: 117件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1jGpI7z_4tKOkpnw3X82vn0LCAtFQldNB
+       6. **3150 グリムス** (EDINET: E22547):
+          - EDINET: 15件 / TDnet: 62件 / 株価: 1件 / 結合PDF: 23件 / TXT: 101件 / Drive総数: 124件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1mqLrPn9ku4cYzPsey06MFiKY5-cEkGYF
+       7. **2415 ヒューマンホールディングス** (EDINET: E05428):
+          - EDINET: 15件 / TDnet: 32件 / 株価: 1件 / 結合PDF: 22件 / TXT: 70件 / Drive総数: 92件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1oJOkGS-wqsdE4-fsfCE82ukmPeJqO0-K
+       8. **6915 千代田インテグレ** (EDINET: E01995):
+          - EDINET: 16件 / TDnet: 92件 / 株価: 1件 / 結合PDF: 24件 / TXT: 133件 / Drive総数: 157件 / 低文字数: 0件
+          - Drive: https://drive.google.com/drive/folders/1RaEprXoglJbjwGLO1-J076CuycVlEm3d
