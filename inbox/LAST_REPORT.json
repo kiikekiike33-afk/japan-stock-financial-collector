@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "3093 トレジャー・ファクトリー 漏えい関連開示の再収集と未収録原因の確認",
+  "instruction": "tdnet.py キーワードフィルタ修正＋3093漏えい開示＋8銘柄収集",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（3093 漏えい開示の再収集と原因確認）",
-  "finished_at": "2026-11-10T18:41:10+09:00",
-  "summary": "3093再収集完了。IR Bank上に漏えい開示4件存在を確認。tdnet.pyのキーワードフィルタによる取得段階除外を特定"
+  "conversation": "日本株収集ツール保守（tdnetフィルタ修正＋3093漏えい＋8銘柄収集）",
+  "finished_at": "2026-11-10T20:07:17+09:00",
+  "summary": "tdnet.pyキーワード拡張・テスト全15件パス、3093漏えい開示4件Drive収録確認、候補8銘柄の収集・結合・TXT・Driveアップロード完了"
 }
