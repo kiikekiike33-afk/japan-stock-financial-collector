@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "tdnet.py キーワードフィルタ修正＋3093漏えい開示＋8銘柄収集",
+  "instruction": "2181 パーソルホールディングス 再収集（Q2決算短信と11/09業績予想修正お知らせの取り込み）",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（tdnetフィルタ修正＋3093漏えい＋8銘柄収集）",
-  "finished_at": "2026-11-10T20:07:17+09:00",
-  "summary": "tdnet.pyキーワード拡張・テスト全15件パス、3093漏えい開示4件Drive収録確認、候補8銘柄の収集・結合・TXT・Driveアップロード完了"
+  "conversation": "日本株収集ツール保守（2181再収集・Q2短信・業績修正確認）",
+  "finished_at": "2026-11-11T09:42:03+09:00",
+  "summary": "2181再収集完了。Programmed修正開示は20261106として収録済みを確認。Q2決算短信は本日11/11 15:30発表予定のため未開示"
 }
