@@ -37,7 +37,7 @@ def main():
     start_time = time.time()
     logger.info(f"=== 2181 パーソルホールディングス 再収集タスク開始 (Ticker: {ticker}) ===")
     
-    company_name = get_company_name(ticker) or "パーソルホールディングス"
+    company_name = "パーソルホールディングス"
     display_name = f"{ticker}_{company_name}"
     logger.info(f"対象企業名: {company_name} (表示名: {display_name})")
     

@@ -47,27 +47,41 @@ def search_and_download_tdnet_docs(ticker: str, years: int = 1, progress_callbac
     try:
         time.sleep(1.5)  # 負荷軽減のための待機
         
-        url = f"https://irbank.net/{ticker}/ir"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+        # IR Bankの走査先: トップページ（当日発表の速報開示用）と /ir（過去約10年分の一覧用）の両方を走査
+        urls_to_scan = [
+            f"https://irbank.net/{ticker}",
+            f"https://irbank.net/{ticker}/ir"
+        ]
         
-        soup = BeautifulSoup(response.text, 'html.parser')
         target_links = []
+        seen_doc_urls = set()
         
-        links = soup.find_all('a')
-        for a in links:
-            href = a.get('href', '')
-            title = a.get_text(strip=True)
-            
-            if not href.startswith(f"/{ticker}/"):
-                continue
+        for scan_url in urls_to_scan:
+            try:
+                resp = requests.get(scan_url, headers=headers, timeout=15)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, 'html.parser')
                 
-            if any(kw in title for kw in target_keywords):
-                target_links.append((title, urllib.parse.urljoin("https://irbank.net", href)))
+                for a in soup.find_all('a'):
+                    href = a.get('href', '')
+                    title = a.get_text(strip=True)
+                    
+                    if not href.startswith(f"/{ticker}/"):
+                        continue
+                        
+                    full_doc_url = urllib.parse.urljoin("https://irbank.net", href)
+                    if full_doc_url in seen_doc_urls:
+                        continue
+                        
+                    if any(kw in title for kw in target_keywords):
+                        seen_doc_urls.add(full_doc_url)
+                        target_links.append((title, full_doc_url))
+            except Exception as e:
+                logger.warning(f"IR Bank走査スキップ ({scan_url}): {e}")
 
         logger.info(f"IR Bank上で合致する適時開示リンクを {len(target_links)} 件検出しました。")
         
