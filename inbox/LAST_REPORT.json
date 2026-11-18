@@ -1,8 +1,8 @@
 {
   "project": "japan-stock-financial-collector",
-  "instruction": "tdnet.py キーワードフィルタ修正＋3093漏えい開示＋8銘柄収集",
+  "instruction": "2181 Q2決算短信・決算説明資料の取り込み",
   "status": "completed",
-  "conversation": "日本株収集ツール保守（tdnetフィルタ修正＋3093漏えい＋8銘柄収集）",
-  "finished_at": "2026-11-10T20:07:17+09:00",
-  "summary": "tdnet.pyキーワード拡張・テスト全15件パス、3093漏えい開示4件Drive収録確認、候補8銘柄の収集・結合・TXT・Driveアップロード完了"
+  "conversation": "日本株収集ツール保守（2181 Q2決算短信・説明資料取り込み）",
+  "finished_at": "2026-11-11T18:30:54+09:00",
+  "summary": "tdnet速報走査導入、2181 Q2決算短信・決算説明資料・自己株式取得開示を正規Driveフォルダへ収録完了"
 }
